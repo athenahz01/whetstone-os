@@ -33,7 +33,7 @@ An agent system nobody opens saves zero hours. KPI #2 is structurally zero. So v
 
 | v1 failure mode | Why it killed adoption | The acceptance test it becomes |
 |---|---|---|
-| Ran on `zheng`, a Windows laptop that "must never sleep" | The system is off whenever the laptop is. Leads arrive and nothing happens. Speed-to-lead - the entire competitive thesis - is unenforceable. | **U1.** Laptop closed and powered down, a lead is ingested and a Telegram alert arrives on the phone. |
+| Ran on `zheng`, a Windows laptop that "must never sleep" | The system is off whenever the laptop is. Leads arrive and nothing happens. Speed-to-lead - the entire competitive thesis - is unenforceable. | **U1.** Laptop closed and powered down, a lead is ingested and an alert email arrives on the phone. |
 | PM2 + Task Scheduler + `pnpm` commands | Operating the system required a terminal. Every restart was a debugging session. | **U2.** No terminal command is required for any normal daily action. Restart, retry, and pause are buttons. |
 | Two panels (`/review`, `/scoreboard`) and no answer to "what do I do now" | The tool showed state, not decisions. The human still had to work out the next action. | **U3.** `/today` opens on a list of at most five decisions, each with the artifact inline and an approve / edit / skip control. |
 | Desktop-only layout | The work happens between sessions, on a phone. | **U4.** Full daily loop completes on a 390px viewport. |
@@ -50,7 +50,7 @@ The engine's **logic is good and stays**. Its **runtime and its UI are the probl
 - `lib/core/types.ts` - the `Lead` / `Draft` / `ChannelAdapter` contracts. These are sound. Keep them.
 - `lib/core/scoring.ts` - `scoreLead()`.
 - `lib/core/drafting.ts` - the three-variant A/B drafter. **Keep the `temperature` removal** (Sonnet 5 returns `400 deprecated`).
-- `lib/core/alerts.ts` - Telegram.
+- `lib/core/alerts.ts` - the `AlertService` interface. The Telegram implementation behind it is replaced by an email sender; the interface and the warn-once degradation behaviour are what get salvaged.
 - `lib/core/engine.ts` - the `tick()` poll→score→alert→draft→save loop, and its rule that it contains no channel-specific branch.
 - `lib/adapters/wyzant.ts` - **keep the widened host check** (`hostname !== "wyzant.com" && !hostname.endsWith(".wyzant.com")`); Wyzant redirects `www.wyzant.com/tutor/jobs` → `highered.wyzant.com`.
 - The five inherited guardrails. Non-negotiable, restated in §3 alongside the two this build adds.
@@ -187,7 +187,7 @@ These four are the *agent-readable* set. `docs/AUTOMATION-MAP.md` and `docs/AUTO
                     └──────────────┬──────────────┘
                                    │
                     ┌──────────────▼──────────────┐        ┌──────────────┐
-                    │  Supabase Postgres          │        │  Telegram    │
+                    │  Supabase Postgres          │        │ Email alerts │
                     │  system of record + auth    │───────▶│  1 digest +  │
                     │  (magic link, backups)      │        │  exceptions  │
                     └─────────────────────────────┘        └──────────────┘
@@ -196,7 +196,7 @@ These four are the *agent-readable* set. `docs/AUTOMATION-MAP.md` and `docs/AUTO
                           cost caps · rate limits · kill switch
 ```
 
-**Why each choice:** Vercel and Supabase are already in Whetstone's stack, so this adds no new vendor to learn. GitHub Actions runs the one job that genuinely needs a real browser (Playwright against Cole's own Wyzant session) on a schedule, for free, with no always-on machine - which is the entire point. Telegram is the notification channel because it reaches a phone; the fix for v1's noise is that it sends **one digest plus exceptions**, never a stream.
+**Why each choice:** Vercel and Supabase are already in Whetstone's stack, so this adds no new vendor to learn. GitHub Actions runs the one job that genuinely needs a real browser (Playwright against Cole's own Wyzant session) on a schedule, for free, with no always-on machine - which is the entire point. The notification channel is email, chosen by the owner over Telegram; the fix for v1's noise is that it sends **one digest plus exceptions**, never a stream. The transport sits behind the `AlertService` interface, so it is one class, swappable again later without touching the engine.
 
 **One orchestration layer, not two.** v1's `engine.ts` `tick()` loop is salvaged, but it does not run beside the new `runWorkflow()` - it becomes a workflow executed *by* it (`S1.ingest`). This matters directly for KPI #4: if adapter polls happened inside `tick()` without writing `run` rows, the "attempted runs" denominator would silently exclude the most failure-prone step in the system, and the success rate would look excellent because the failures were never counted.
 
@@ -255,7 +255,7 @@ Phases 0-7 are the sales proof point. Phase 8 is the marketing proof point. Phas
 - Deploy the Next.js app to Vercel. Supabase magic-link auth in front of it.
 - **Vercel Cron** replaces PM2 for the scheduled tick, digests, and the weekly brief.
 - **GitHub Actions** scheduled workflow runs the Playwright Wyzant poll: headless Chromium, storage state from an encrypted repo secret, jittered start, POSTs results to `/api/ingest` with a shared secret.
-- Telegram alerts send from the cloud.
+- Alert email sends from the cloud.
 - Port the salvage list from §1 with its Vitest suite intact.
 - **Regression locks** - a test per item, each named for the bug it prevents:
  - `drafting.ts` sends no `temperature` parameter (Sonnet 5 returns `400 deprecated`).
@@ -265,14 +265,14 @@ Phases 0-7 are the sales proof point. Phase 8 is the marketing proof point. Phas
  - A failing adapter poll cannot kill the tick.
 
 **Acceptance.**
-- [ ] **U1** - laptop shut down. A lead is ingested by the scheduled poll and a Telegram alert lands on the phone.
+- [ ] **U1** - laptop shut down. A lead is ingested by the scheduled poll and an alert email lands on the phone.
 - [ ] **U2a** - the runtime stays up with no terminal: no process to start, nothing to keep alive, no command to re-run after a crash. (**U2b** - restart, retry and pause as buttons - lands in Phase 7, where there is a surface to put them on.)
 - [ ] **U6** - data in hosted Postgres; automated backup verified by a restore into a scratch database.
 - [ ] Auth works from a phone browser.
 - [ ] All five regression locks pass, each named for its bug.
 - [ ] `org_id` present on every table, with a migration test asserting it.
 - [ ] Missing `ANTHROPIC_API_KEY` degrades gracefully - warn, no crash loop.
-- [ ] Missing Telegram token degrades gracefully - warn, keep running.
+- [ ] Missing alert SMTP configuration degrades gracefully - warn once, keep running.
 - [ ] Deployment is reproducible from a clean checkout plus documented env vars. Nothing depends on `zheng`.
 
 **Tests.** The five regression locks. An adapter-contract test per adapter. A migration test asserting Postgres parity with the archived SQLite schema. A degradation test per missing-secret case.
@@ -446,7 +446,7 @@ Phases 0-7 are the sales proof point. Phase 8 is the marketing proof point. Phas
 - `/today`: **at most five decision cards**, ranked by value at risk. Each card carries what it is, why now, the draft or brief inline, and approve / edit / skip. Nothing requires leaving the card to decide.
 - Above the cards, three lines: what the system did since last visit, what changed in the pipeline, what needs a human.
 - Below: a collapsed "everything else" - not a second queue, an archive.
-- **Telegram becomes one daily digest plus hot-lead exceptions.** The v1 stream is the noise Cole's brief explicitly warns against: *"one management view rather than allowing every agent to generate its own stream of notifications."*
+- **Alerts become one daily digest plus hot-lead exceptions.** The v1 stream is the noise Cole's brief explicitly warns against: *"one management view rather than allowing every agent to generate its own stream of notifications."*
 - Mobile-first at 390px, then desktop.
 - Kill switch, pause, and per-workflow retry as buttons - **U2b**. Outcome logging (replied / call booked / converted / revenue) as a one-tap action on a card, so Phase 6's `outcomes` table actually gets written by the person who knows the answer.
 - Every decision writes an `approvals` row and starts the human-minutes timer, so `/today` is also the primary KPI #2 instrument.
@@ -457,7 +457,7 @@ Phases 0-7 are the sales proof point. Phase 8 is the marketing proof point. Phas
 - [ ] **U2b** - restart, retry and pause are buttons.
 - [ ] **U5** - approve → send → logged is at most two taps plus the deliberate paste G1 requires.
 - [ ] **The five-minute gate.** Two numbers, and they are different kinds of number. The **app-timed** median minutes per decision is the KPI #2 input. The **stopwatch** figure - Athena walking the whole loop on her phone, once, end to end - is a usability observation reported in the handoff. It is not KPI data and never enters the scorecard, which is why it does not violate the no-self-reporting rule. If the stopwatch says fifteen minutes, the phase fails regardless of correctness.
-- [ ] Telegram sends one digest per day plus exceptions. Proven by a fixture day with many events producing one digest.
+- [ ] Alerts send one digest per day plus exceptions. Proven by a fixture day with many events producing one digest.
 - [ ] Human minutes per decision are recorded automatically, not self-reported.
 - [ ] Ranking is explainable - each card can state why it is at its position.
 
@@ -474,7 +474,7 @@ Phases 0-7 are the sales proof point. Phase 8 is the marketing proof point. Phas
 **Goal.** Kill the documented failure mode - *"Cole is delivering sessions, and week six arrives with nothing written"* - while satisfying the brief's content-repurposing-and-distribution priority in the same workflow.
 
 **Build.**
-- **Idea ledger.** The docs say the raw material already exists and is thrown away: every parent question on a call, every thing a student got wrong twice, every deadline that surprised someone. Capture paths: a Telegram one-liner, a note field on `/today`, and mining the engine's own reply corpus. One line per idea, no ceremony.
+- **Idea ledger.** The docs say the raw material already exists and is thrown away: every parent question on a call, every thing a student got wrong twice, every deadline that surprised someone. Capture paths: a one-line quick capture (email to a dedicated address, or a note field on `/today`), and mining the engine's own reply corpus. One line per idea, no ceremony.
 - **Issue drafter**, following the documented seven-slot anatomy exactly: epigraph → named idea → wrong-belief opener → reframe → mechanism → *do this* (three numbered steps) → close (one ask as a question, one disqualifier, one button, sign-off imperative, ` -  Cole`, PS "the Latin").
 - **Deterministic structural enforcement** before any model review: pillar assigned (an issue that can't be assigned to exactly one pillar isn't an issue), word count in band, exactly three implementation steps, one link maximum, PS under 25 words, sign-off 2-5 words, subject line 2-6 words, no emoji in the subject.
 - **The ⓕ fact-check gate.** Every factual claim flagged and checked against `FACTS.md` plus a primary source. A claim that can't be sourced blocks the issue. The docs are explicit that specificity is the whole product, so a stale number costs more here than anywhere else.
@@ -485,7 +485,7 @@ Phases 0-7 are the sales proof point. Phase 8 is the marketing proof point. Phas
 - **No ESP dependency.** beehiiv is recommended but unprovisioned, so the workflow measures **approved assets**, exactly as the KPI doc's secondary measures specify. When an ESP lands, publishing becomes one adapter against this queue.
 
 **Acceptance.**
-- [ ] An idea captured by Telegram one-liner reaches the ledger.
+- [ ] An idea captured by the quick-capture path reaches the ledger.
 - [ ] Every structural rule is enforced deterministically before the model reviews anything. One test per rule.
 - [ ] An issue with an unsourceable factual claim is blocked, and the claim is named.
 - [ ] The delete-the-CTA test is implemented as an actual check, not a guideline.
@@ -514,7 +514,7 @@ Phases 0-7 are the sales proof point. Phase 8 is the marketing proof point. Phas
 - **the recommended plan for the next cycle** (the Marketing Lead function): which pillar to write into next and why, based on what performed - never on what is easiest to produce
 - **the five recommended actions with their reasoning**
 
-Renders at `/brief`, pushes to Telegram and email. Fully GREEN - it reads, reports and recommends; it never acts.
+Renders at `/brief` and sends by email. Fully GREEN - it reads, reports and recommends; it never acts.
 
 **Acceptance.**
 - [ ] Generates from live data with no human assembly.
@@ -565,7 +565,7 @@ Renders at `/brief`, pushes to Telegram and email. Fully GREEN - it reads, repor
 
 **Build.**
 - **Session-staleness detection** for the Wyzant storage state: N consecutive empty polls or a login redirect raises `SESSION_STALE` with a link to the documented re-capture ritual. Silent failure looks identical to a quiet day and is the thing that destroys trust in an ops system.
-- Backup verification by restore. Secrets audit. Cost caps live. Kill switch tested. An incident runbook covering: API down, Telegram down, Wyzant session expired, cost cap tripped, bad drafts shipping.
+- Backup verification by restore. Secrets audit. Cost caps live. Kill switch tested. An incident runbook covering: API down, the alert transport down, Wyzant session expired, cost cap tripped, bad drafts shipping.
 - **Generate the nine deliverables**, each from the running system rather than written by hand:
   1. Working sales pilot → Phases 3-7
   2. Working marketing pilot → Phase 8
