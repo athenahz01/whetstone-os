@@ -8,6 +8,7 @@ const tables = [
   "outcomes",
   "profiles",
   "metrics_daily",
+  "poll_heartbeats",
 ];
 
 const archivedColumns: Record<string, string[]> = {
@@ -83,6 +84,14 @@ const archivedColumns: Record<string, string[]> = {
     "responded_lead_count",
     "revenue_cents",
     "source",
+    "created_at",
+    "updated_at",
+  ],
+  poll_heartbeats: [
+    "id",
+    "source",
+    "last_run_at",
+    "stale_alerted_at",
     "created_at",
     "updated_at",
   ],

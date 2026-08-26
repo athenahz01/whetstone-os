@@ -14,11 +14,22 @@ export interface AlertService {
   notify(lead: Lead, score: number): Promise<void>;
 }
 
+export interface ExceptionAlertService {
+  isEnabled(): boolean;
+  notifyException(title: string, detail: string): Promise<void>;
+}
+
 export class StubAlertService implements AlertService {
   isEnabled(): boolean {
     return true;
   }
   async notify(): Promise<void> {}
+}
+
+interface TelegramAlertConfig {
+  client: TelegramClient;
+  chatId: string;
+  reviewBaseUrl: string;
 }
 
 export interface TelegramAlertServiceOptions {
@@ -55,20 +66,14 @@ export class TelegramAlertService implements AlertService {
   }
 
   async notify(lead: Lead, score: number): Promise<void> {
-    if (!this.client || !this.chatId || !this.reviewBaseUrl) {
-      if (!this.warnedDisabled) {
-        this.warnedDisabled = true;
-        this.warn(
-          "Telegram alerts are disabled: token, chat ID, and hosted review URL are required.",
-        );
-      }
-      return;
-    }
+    const ready = this.readyConfig();
+    if (!ready) return;
+    const { client, chatId, reviewBaseUrl } = ready;
 
-    const reviewUrl = new URL(this.reviewBaseUrl);
+    const reviewUrl = new URL(reviewBaseUrl);
     reviewUrl.searchParams.set("leadId", lead.id);
-    await this.client.sendMessage(
-      this.chatId,
+    await client.sendMessage(
+      chatId,
       [
         `Hot lead, score ${score}`,
         `${lead.subject ?? "New opportunity"}${lead.location ? `, ${lead.location}` : ""}`,
@@ -76,5 +81,31 @@ export class TelegramAlertService implements AlertService {
       ].join("\n"),
       { link_preview_options: { is_disabled: true } },
     );
+  }
+
+  async notifyException(title: string, detail: string): Promise<void> {
+    const ready = this.readyConfig();
+    if (!ready) return;
+    const { client, chatId, reviewBaseUrl } = ready;
+
+    await client.sendMessage(
+      chatId,
+      [title, detail, `Review: ${reviewBaseUrl}`].join("\n"),
+      { link_preview_options: { is_disabled: true } },
+    );
+  }
+
+  private readyConfig(): TelegramAlertConfig | null {
+    const { client, chatId, reviewBaseUrl } = this;
+    if (client && chatId && reviewBaseUrl) {
+      return { client, chatId, reviewBaseUrl };
+    }
+    if (!this.warnedDisabled) {
+      this.warnedDisabled = true;
+      this.warn(
+        "Telegram alerts are disabled: token, chat ID, and hosted review URL are required.",
+      );
+    }
+    return null;
   }
 }

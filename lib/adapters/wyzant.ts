@@ -19,6 +19,13 @@ export interface WyzantAdapterOptions {
   browserFactory?: () => Promise<Browser>;
 }
 
+export class WyzantAuthenticationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WyzantAuthenticationError";
+  }
+}
+
 export class WyzantAdapter implements ChannelAdapter {
   readonly name = "wyzant";
 
@@ -143,19 +150,30 @@ export function isOfficialWyzantUrl(value: string): boolean {
   }
 }
 
-export function createWyzantAdapterFromEnv(): WyzantAdapter {
-  const rawState = process.env.WYZANT_STORAGE_STATE_JSON?.trim();
-  if (!rawState) throw new Error("WYZANT_STORAGE_STATE_JSON is required.");
-  let storageState: NonNullable<BrowserContextOptions["storageState"]>;
+export function officialWyzantUrl(value: string): URL {
+  if (!isOfficialWyzantUrl(value)) {
+    throw new Error("Wyzant URL must use an official HTTPS origin.");
+  }
+  return new URL(value);
+}
+
+export function parseWyzantStorageState(
+  rawState: string | undefined = process.env.WYZANT_STORAGE_STATE_JSON,
+): NonNullable<BrowserContextOptions["storageState"]> {
+  if (!rawState?.trim())
+    throw new Error("WYZANT_STORAGE_STATE_JSON is required.");
   try {
-    storageState = JSON.parse(rawState) as NonNullable<
+    return JSON.parse(rawState) as NonNullable<
       BrowserContextOptions["storageState"]
     >;
   } catch {
     throw new Error("WYZANT_STORAGE_STATE_JSON must contain valid JSON.");
   }
+}
+
+export function createWyzantAdapterFromEnv(): WyzantAdapter {
   return new WyzantAdapter({
-    storageState,
+    storageState: parseWyzantStorageState(),
     feedUrl:
       process.env.WYZANT_FEED_URL?.trim() ||
       "https://www.wyzant.com/tutor/jobs",

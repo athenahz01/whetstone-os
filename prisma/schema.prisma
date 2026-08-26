@@ -133,3 +133,17 @@ model MetricsDaily {
   @@index([orgId, source, date])
   @@map("metrics_daily")
 }
+
+model PollHeartbeat {
+  id             String    @id @default(uuid()) @db.Uuid
+  orgId          String    @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
+  source         String
+  lastRunAt      DateTime? @map("last_run_at") @db.Timestamptz(3)
+  staleAlertedAt DateTime? @map("stale_alerted_at") @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([orgId, source])
+  @@index([orgId, lastRunAt])
+  @@map("poll_heartbeats")
+}

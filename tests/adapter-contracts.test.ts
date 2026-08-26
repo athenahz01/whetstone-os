@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { BatchAdapter } from "../lib/adapters/batch";
 import { EmailAdapter } from "../lib/adapters/email";
 import { WyzantAdapter } from "../lib/adapters/wyzant";
+import { WyzantMessagesAdapter } from "../lib/adapters/wyzant-messages";
 import type { ChannelAdapter } from "../lib/core/types";
 import { lead } from "./helpers";
 
@@ -38,6 +39,12 @@ describe("channel adapter contracts", () => {
         includeOnlineJobs: true,
       }),
       "wyzant",
+    );
+    expectAdapterContract(
+      new WyzantMessagesAdapter({
+        storageState: { cookies: [], origins: [] },
+      }),
+      "wyzant-messages",
     );
     expectAdapterContract(new BatchAdapter([lead()]), "ingest");
   });

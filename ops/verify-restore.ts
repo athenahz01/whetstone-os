@@ -10,6 +10,7 @@ const expected = [
   "outcomes",
   "profiles",
   "metrics_daily",
+  "poll_heartbeats",
 ];
 const client = new PrismaClient({ datasourceUrl: restoreUrl });
 try {
@@ -18,7 +19,7 @@ try {
     FROM information_schema.columns
     WHERE table_schema = 'public'
       AND column_name = 'org_id'
-      AND table_name IN ('tutors', 'leads', 'drafts', 'outcomes', 'profiles', 'metrics_daily')
+      AND table_name IN ('tutors', 'leads', 'drafts', 'outcomes', 'profiles', 'metrics_daily', 'poll_heartbeats')
   `;
   const present = new Set(rows.map((row) => row.table_name));
   const missing = expected.filter((table) => !present.has(table));

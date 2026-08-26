@@ -91,6 +91,17 @@ CREATE TABLE "metrics_daily" (
   CONSTRAINT "metrics_daily_pkey" PRIMARY KEY ("id")
 );
 
+CREATE TABLE "poll_heartbeats" (
+  "id" UUID NOT NULL,
+  "org_id" UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',
+  "source" TEXT NOT NULL,
+  "last_run_at" TIMESTAMPTZ(3),
+  "stale_alerted_at" TIMESTAMPTZ(3),
+  "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updated_at" TIMESTAMPTZ(3) NOT NULL,
+  CONSTRAINT "poll_heartbeats_pkey" PRIMARY KEY ("id")
+);
+
 CREATE UNIQUE INDEX "tutors_org_id_slug_key" ON "tutors"("org_id", "slug");
 CREATE INDEX "tutors_org_id_active_name_idx" ON "tutors"("org_id", "active", "name");
 CREATE INDEX "leads_org_id_channel_posted_at_idx" ON "leads"("org_id", "channel", "posted_at");
@@ -107,6 +118,8 @@ CREATE INDEX "profiles_org_id_idx" ON "profiles"("org_id");
 CREATE UNIQUE INDEX "metrics_daily_org_id_date_tutor_id_key" ON "metrics_daily"("org_id", "date", "tutor_id");
 CREATE INDEX "metrics_daily_org_id_date_tutor_id_idx" ON "metrics_daily"("org_id", "date", "tutor_id");
 CREATE INDEX "metrics_daily_org_id_source_date_idx" ON "metrics_daily"("org_id", "source", "date");
+CREATE UNIQUE INDEX "poll_heartbeats_org_id_source_key" ON "poll_heartbeats"("org_id", "source");
+CREATE INDEX "poll_heartbeats_org_id_last_run_at_idx" ON "poll_heartbeats"("org_id", "last_run_at");
 
 ALTER TABLE "leads" ADD CONSTRAINT "leads_tutor_id_fkey" FOREIGN KEY ("tutor_id") REFERENCES "tutors"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "drafts" ADD CONSTRAINT "drafts_lead_id_fkey" FOREIGN KEY ("lead_id") REFERENCES "leads"("id") ON DELETE CASCADE ON UPDATE CASCADE;

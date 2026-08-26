@@ -1,4 +1,9 @@
 import { BatchAdapter } from "../../../lib/adapters/batch";
+import { prisma } from "../../../lib/core/db";
+import {
+  recordPollHeartbeat,
+  WYZANT_POLL_HEARTBEAT,
+} from "../../../lib/core/heartbeat";
 import { createGrowthEngine } from "../../../lib/core/runtime";
 import type { Lead } from "../../../lib/core/types";
 import { secretMatches } from "../../../lib/http/secret";
@@ -27,13 +32,37 @@ export async function POST(request: Request) {
   const result = await createGrowthEngine([
     new BatchAdapter(body.leads),
   ]).tick();
+  if (body.heartbeat) {
+    await recordPollHeartbeat(
+      prisma,
+      WYZANT_POLL_HEARTBEAT,
+      new Date(body.heartbeat.ranAt),
+    );
+  }
   return Response.json({ ok: true, ...result });
 }
 
-function isLeadBatch(value: unknown): value is { leads: Lead[] } {
+interface IngestBatch {
+  leads: Lead[];
+  heartbeat?: { source: typeof WYZANT_POLL_HEARTBEAT; ranAt: string };
+}
+
+function isLeadBatch(value: unknown): value is IngestBatch {
   if (!value || typeof value !== "object") return false;
-  const leads = (value as { leads?: unknown }).leads;
+  const candidate = value as { leads?: unknown; heartbeat?: unknown };
+  const leads = candidate.leads;
   if (!Array.isArray(leads) || leads.length > 100) return false;
+  const heartbeat = candidate.heartbeat;
+  if (
+    heartbeat !== undefined &&
+    (!heartbeat ||
+      typeof heartbeat !== "object" ||
+      (heartbeat as { source?: unknown }).source !== WYZANT_POLL_HEARTBEAT ||
+      typeof (heartbeat as { ranAt?: unknown }).ranAt !== "string" ||
+      Number.isNaN(Date.parse((heartbeat as { ranAt: string }).ranAt)))
+  ) {
+    return false;
+  }
   return leads.every((lead) => {
     if (!lead || typeof lead !== "object") return false;
     const item = lead as Record<string, unknown>;
