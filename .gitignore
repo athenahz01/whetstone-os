@@ -1,0 +1,20 @@
+# Environment and secrets
+.env*
+!.env.example
+
+# Local databases
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+
+# Browser authentication state
+playwright/.auth/
+
+# Dependencies and build output
+node_modules/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+*.log
