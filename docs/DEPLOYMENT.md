@@ -4,6 +4,43 @@ The application runtime is Vercel, persistence and authentication are Supabase,
 and the authenticated browser poll is GitHub Actions. None of those services
 depends on a workstation remaining online.
 
+## Plan prerequisites - read before provisioning
+
+### Vercel Pro is required. This is a hard blocker, not a preference.
+
+`vercel.json` schedules `/api/cron/tick` at `*/5 * * * *`. On the Hobby plan the
+**deployment itself fails** with:
+
+> Hobby accounts are limited to daily cron jobs. This cron expression would run
+> more than once per day.
+
+Hobby allows cron jobs once per day with per-hour precision. Pro allows once per
+minute with per-minute precision. A daily tick would make IMAP ingestion useless
+for speed to lead, which is the competitive claim the whole system rests on.
+
+There is a second, independent reason: Hobby is for non-commercial use. This is a
+revenue tool for Whetstone Advisory LLC. Verify the current terms against the
+account, but plan on Pro.
+
+Pro is roughly 20 dollars per month per member. If that is not wanted right now,
+the technical workaround is to move the tick to the existing GitHub Actions
+schedule by curling `/api/cron/tick` with `CRON_SECRET`. That avoids the cron
+limit and does not address the commercial use question.
+
+### Supabase Free is fine to start, with one caveat that touches U6
+
+Free does not include automatic daily backups. Supabase recommends free projects
+export regularly with the CLI `db dump` command and keep off-site copies. Daily
+backups with seven day retention start on Pro.
+
+U6 is still satisfiable on Free: take a manual `db dump`, restore it into a
+separate disposable project, and run `pnpm restore:verify` against that. The
+drill below is written for exactly that. Upgrade when losing the data would
+actually hurt.
+
+Free projects also pause after a period of inactivity. The five minute cron keeps
+this project active, so it is not a practical risk here.
+
 ## Supabase
 
 1. Create a production project and record its pooled and direct Postgres URLs.
