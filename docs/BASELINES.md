@@ -93,6 +93,11 @@ assets, never raw generations.
 
 ## Named non-adoption acceptance tests
 
+Each `AT-Ux` id names the `U` criterion it tests, so `AT-U3-*` tests `U3`. Two
+ids were realigned on 2026-08-26 after `U7` was added: the inline-artifact test
+is a facet of `U3`, not a criterion of its own, and the restore test is `U6`.
+Keep the numbers matching when a criterion is added.
+
 | Test ID                | Failure being prevented                                                               | Pass condition                                                                                                             |
 | ---------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | AT-U1-LAPTOP-OFF       | The laptop had to stay on for polling and alerts.                                     | Shut the laptop down; a test lead is ingested by hosted infrastructure and an alert email reaches a phone.               |
@@ -100,5 +105,6 @@ assets, never raw generations.
 | AT-U3-FIVE-DECISIONS   | v1 opened into an unbounded operational console rather than a daily decision surface. | `/today` opens with at most five decisions and each artifact is inline with approve, edit, and skip.                       |
 | AT-U4-390PX-LOOP       | v1 had no measured phone-complete daily loop.                                         | The full daily loop completes at a 390px viewport without horizontal overflow or a desktop-only action.                    |
 | AT-U5-TWO-TAP-SEND-LOG | v1 required a long copy-paste-mark-log sequence across surfaces.                      | Approve to human send to logged takes no more than two app taps plus the one paste required by G1.                         |
-| AT-U6-INLINE-ARTIFACT  | Source, draft, and decision context were split across pages and platforms.            | Each daily decision shows its source evidence and artifact together; no separate copying step is required before approval. |
-| AT-U7-HOSTED-RESTORE   | State lived in local SQLite without a verified hosted restore.                        | State is in hosted Postgres and a backup is restored into a clean target with row-count and integrity checks.              |
+| AT-U3-INLINE-ARTIFACT  | Source, draft, and decision context were split across pages and platforms.            | Each daily decision shows its source evidence and artifact together; no separate copying step is required before approval. |
+| AT-U6-HOSTED-RESTORE   | State lived in local SQLite without a verified hosted restore.                        | State is in hosted Postgres and a backup is restored into a clean target with row-count and integrity checks.              |
+| AT-U7-ANON-DENIED      | Prisma creates tables with no row-level security and Supabase grants the public anon key access to everything in `public`. A live probe found every table world-readable. | Every table in `public` returns no rows to the anon key over PostgREST, verified against the live deployment rather than a settings screen. |
