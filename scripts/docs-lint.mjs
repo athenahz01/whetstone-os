@@ -13,6 +13,7 @@ const REQUIRED = [
   "FACTS.md",
   "BASELINES.md",
   "AUTOMATION-MAP.md",
+  "AUTONOMY-LOG.md",
 ];
 
 const APPROVED_SUBJECTS = [
@@ -119,6 +120,7 @@ for (const [name, body] of [
   ["FACTS.md", facts],
   ["BASELINES.md", baselines],
   ["AUTOMATION-MAP.md", map],
+  ["AUTONOMY-LOG.md", read("AUTONOMY-LOG.md")],
 ]) {
   body.split("\n").forEach((line, i) => {
     if (line.includes("—") || line.includes("–")) {

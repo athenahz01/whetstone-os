@@ -1,10 +1,8 @@
 import { createScheduledAdapters } from "../../../../lib/adapters";
 import { prisma } from "../../../../lib/core/db";
 import { checkPollHeartbeat } from "../../../../lib/core/heartbeat";
-import {
-  createGrowthEngine,
-  createAlertsFromEnv,
-} from "../../../../lib/core/runtime";
+import { createAlertsFromEnv } from "../../../../lib/core/runtime";
+import { runIngest } from "../../../../lib/core/scheduler";
 import { secretMatches } from "../../../../lib/http/secret";
 
 export const runtime = "nodejs";
@@ -33,8 +31,25 @@ export async function GET(request: Request) {
       heartbeat,
     });
   }
-  const result = await createGrowthEngine(adapters, prisma, alerts).tick();
-  return Response.json({ ok: true, ...result, heartbeat });
+  const guarded = await runIngest({ adapters, trigger: "vercel-cron", alerts });
+  if (!guarded.started) {
+    return Response.json(
+      { ok: false, refused: guarded.kind, message: guarded.message, heartbeat },
+      { status: 503 },
+    );
+  }
+  const result = guarded.run.outputs.get("poll-and-ingest") ?? {
+    polled: 0,
+    inserted: 0,
+    deduped: 0,
+  };
+  return Response.json({
+    ok: guarded.run.status === "succeeded",
+    runId: guarded.run.runId,
+    status: guarded.run.status,
+    ...result,
+    heartbeat,
+  });
 }
 
 function positiveInteger(value: string | undefined, fallback: number): number {

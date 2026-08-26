@@ -115,6 +115,29 @@ Alert bodies carry the score, subject, location, channel and review link only.
 No lead message text and no lead contact details, because an inbox keeps a copy
 forever and the G5 restraint that applies to logs applies here too.
 
+## Stopping the system
+
+The kill switch is a `system_flags` row that the scheduler reads before every
+workflow. Stopping the system needs no deploy, no terminal and no laptop.
+Phase 7 will put a button on it; until then the route is the interface.
+
+```powershell
+$headers = @{ "x-admin-secret" = $env:ADMIN_SECRET; "Content-Type" = "application/json" }
+Invoke-RestMethod -Method Post -Uri "$env:NEXT_PUBLIC_SITE_URL/api/admin/kill-switch" `
+  -Headers $headers -Body '{"engaged":true,"note":"paused while investigating"}'
+```
+
+Send `{"engaged":false}` to release it, or `GET` the same route to read the
+current state. While it is engaged, scheduled workflows are refused before a
+run row is written, and each refusal writes an `exceptions` row saying which
+workflow was stopped and why.
+
+Two ceilings work the same way. `DAILY_COST_USD_CEILING` caps total run cost
+in a rolling 24 hours and `WORKFLOW_RUNS_PER_HOUR` caps one workflow in a
+rolling hour. A tripped ceiling stops the workflow and raises an exception. It
+does not silently degrade, because a system that quietly does less looks
+exactly like a quiet day.
+
 ## Row-level security
 
 Prisma creates tables with no row-level security. Supabase grants the `anon`

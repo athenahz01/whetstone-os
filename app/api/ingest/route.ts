@@ -4,7 +4,7 @@ import {
   recordPollHeartbeat,
   WYZANT_POLL_HEARTBEAT,
 } from "../../../lib/core/heartbeat";
-import { createGrowthEngine } from "../../../lib/core/runtime";
+import { runIngest } from "../../../lib/core/scheduler";
 import type { Lead } from "../../../lib/core/types";
 import { secretMatches } from "../../../lib/http/secret";
 
@@ -29,9 +29,16 @@ export async function POST(request: Request) {
   if (!isLeadBatch(body)) {
     return Response.json({ error: "Invalid lead batch" }, { status: 400 });
   }
-  const result = await createGrowthEngine([
-    new BatchAdapter(body.leads),
-  ]).tick();
+  const guarded = await runIngest({
+    adapters: [new BatchAdapter(body.leads)],
+    trigger: "github-actions-ingest",
+  });
+  if (!guarded.started) {
+    return Response.json(
+      { ok: false, refused: guarded.kind, message: guarded.message },
+      { status: 503 },
+    );
+  }
   if (body.heartbeat) {
     await recordPollHeartbeat(
       prisma,
@@ -39,7 +46,17 @@ export async function POST(request: Request) {
       new Date(body.heartbeat.ranAt),
     );
   }
-  return Response.json({ ok: true, ...result });
+  const result = guarded.run.outputs.get("poll-and-ingest") ?? {
+    polled: 0,
+    inserted: 0,
+    deduped: 0,
+  };
+  return Response.json({
+    ok: guarded.run.status === "succeeded",
+    runId: guarded.run.runId,
+    status: guarded.run.status,
+    ...result,
+  });
 }
 
 interface IngestBatch {
