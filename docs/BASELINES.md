@@ -95,7 +95,7 @@ assets, never raw generations.
 
 | Test ID                | Failure being prevented                                                               | Pass condition                                                                                                             |
 | ---------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| AT-U1-LAPTOP-OFF       | The laptop had to stay on for polling and alerts.                                     | Shut the laptop down; a test lead is ingested by hosted infrastructure and a Telegram alert reaches a phone.               |
+| AT-U1-LAPTOP-OFF       | The laptop had to stay on for polling and alerts.                                     | Shut the laptop down; a test lead is ingested by hosted infrastructure and an alert email reaches a phone.               |
 | AT-U2A-ZERO-TERMINAL   | Startup and recovery required terminal commands and PM2.                              | The runtime remains available with no local process, terminal, startup command, or crash-recovery command.                 |
 | AT-U3-FIVE-DECISIONS   | v1 opened into an unbounded operational console rather than a daily decision surface. | `/today` opens with at most five decisions and each artifact is inline with approve, edit, and skip.                       |
 | AT-U4-390PX-LOOP       | v1 had no measured phone-complete daily loop.                                         | The full daily loop completes at a 390px viewport without horizontal overflow or a desktop-only action.                    |

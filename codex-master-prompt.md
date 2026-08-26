@@ -49,7 +49,7 @@ Only the four marked agent-readable are loaded into prompts. A map of intentions
 | Browser jobs | **GitHub Actions** + Playwright (Chromium), storage state from an encrypted repo secret |
 | Hosting | **Vercel** |
 | Model | `@anthropic-ai/sdk`, `claude-sonnet-5` |
-| Alerts | Telegraf (Telegram) |
+| Alerts | Email over SMTP via `nodemailer` |
 | Email | ImapFlow + MailParser |
 | Tests | Vitest |
 | Tooling | pnpm, Node 20+, ESLint, Prettier |
@@ -111,6 +111,11 @@ Confirm each one individually in every handoff. If a task appears to require bre
 5. **G5 - Secrets in env only**, never committed. Never log message bodies or PII at info level.
 6. **G6 - No cold outbound to parents of minors.** Targets are Wyzant inbound inquiries, dormant contacts with recorded consent provenance, and professional referral partners.
 7. **G7 - No comparative ranking of students.** No leaderboards, no cross-student scoring surfaced to a student or parent.
+
+**Alert sender.** Alerts go by email, not Telegram. The alert service takes no
+recipient argument and mails only `ALERT_EMAIL_TO`. It is not, and must never
+become, a path to message a prospect. That is G1 restated for the one component
+in the system that can send mail.
 
 ---
 
@@ -179,7 +184,7 @@ The scorecard is what the week is judged by. These are FIX-on-sight:
 
 v1 passed every technical check and went unused. These are why:
 
-- **U1** - laptop shut down, a lead is ingested and a Telegram alert lands on a phone.
+- **U1** - laptop shut down, a lead is ingested and an alert email lands on a phone.
 - **U2a** (Phase 1) - the runtime stays up with no terminal: no process to start, nothing to keep alive, no command to re-run after a crash.
 - **U2b** (Phase 7) - restart, retry and pause are buttons.
 - **U3** - `/today` opens on **at most five** decisions, each with its artifact inline and approve / edit / skip.
@@ -222,7 +227,7 @@ Applicant-facing numbers are in live public conflict across Whetstone's own surf
 
 ## Every phase is written as
 
-**Goal → Build → Acceptance criteria → Tests.** A phase is done only when every acceptance box can be checked and the tests pass. Graceful degradation is an acceptance criterion, not a nicety: a missing `ANTHROPIC_API_KEY` must not crash-loop, an absent Telegram token must warn and keep running, a failing adapter poll must not kill the tick.
+**Goal → Build → Acceptance criteria → Tests.** A phase is done only when every acceptance box can be checked and the tests pass. Graceful degradation is an acceptance criterion, not a nicety: a missing `ANTHROPIC_API_KEY` must not crash-loop, absent alert credentials must warn once and keep running, a failing adapter poll must not kill the tick.
 
 ---
 

@@ -170,9 +170,12 @@ Wyzant tutoring inquiries.
   hyphens. `pnpm docs:lint` enforces this for `docs/`.
 - **Small targeted edits** over large rewrites.
 - **Stop before anything destructive or irreversible** and ask.
-- **Never create a git remote and never push.** Neither repository has a remote
-  yet, and that is deliberate. Athena pushes. See
-  `C:\AA_Whetstone\PUSH-THE-ARCHIVE.md`.
+- **Never push, and never create a remote.** `whetstone-os` now has an `origin`
+  at `github.com/athenahz01/whetstone-os` that Athena created. Local `master`
+  may sit ahead of it. That is fine and it is not yours to reconcile: do not
+  push, do not fetch, do not pull, do not rebase onto origin. Athena pushes.
+  The v1 archive at `C:\AA_Whetstone\whetstone-growth-engine` still has no
+  remote by choice; see `C:\AA_Whetstone\PUSH-THE-ARCHIVE.md`.
 - **Do not edit the four `docs/` context files** without saying so prominently in
   the handoff. They change agent behavior at runtime with no code change.
 - **Run `pnpm docs:lint` in every phase.** It is the only thing that catches a
