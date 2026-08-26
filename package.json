@@ -1,0 +1,10 @@
+{
+  "name": "whetstone-os",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Whetstone agentic operations. Phase 0 ground truth; runtime lands in Phase 1.",
+  "scripts": {
+    "docs:lint": "node scripts/docs-lint.mjs"
+  }
+}

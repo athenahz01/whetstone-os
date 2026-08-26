@@ -50,6 +50,26 @@ The threshold is committed now, before any real approval exists:
 - Formatting-only changes count under the same formula; there is no manual
   override.
 
+### Why 0.20 and not 0.15
+
+Recorded 2026-08-26, before any real approval exists.
+
+The build plan proposed roughly 0.15 as a starting point. The frozen value is
+0.20. The reason is that this formula counts character-level distance over the
+whole artifact, including whitespace-normalized formatting, so a reviewer who
+retitles a subject line and tightens one sentence in a 120-word Wyzant reply can
+cross 0.15 without doing any rethinking. That is the behavior the KPI doc calls
+a minor edit, and a threshold that flags it would understate acceptance.
+
+0.20 is a judgement about this specific formula, not a loosening of the
+standard. The second clause does the real work: `required_new_research` sends
+any edit that sent the reviewer back to a source into the rewrite bucket
+regardless of how small the diff was.
+
+Auditor note: this value was set before any approval row existed. It must never
+be revised upward after real acceptance data is visible, and any future change
+creates a new versioned definition rather than editing this one.
+
 This threshold is immutable after the first real approval unless a future audit
 creates a new versioned KPI definition. Historical rows keep the definition
 version they were measured under.

@@ -104,6 +104,36 @@ the capability must be absent.
 - Return only the requested artifact body unless the workflow schema requires
   citations or a decision label.
 
+## Positioning bans
+
+These six phrases and the outcome rule below are not style preferences. Each one
+carries a positioning or legal meaning for Whetstone, and using it undoes a
+decision the business has already made. They outrank everything in the generic
+list that follows.
+
+| Never write | Why | Say instead |
+| --- | --- | --- |
+| "consultation" | The offer is a session with the founders, not a consultation. The category word is what every competitor uses and it prices the hour down. | "a session", "an hour with the founders", or name the thing directly |
+| "ikigai" | An internal name for a framework. No family is buying ikigai. | "direction", "purpose", "figuring out what they actually want" |
+| "Common App" | Internal shorthand for the teardown exercise. Naming the tool instead of the outcome sounds like process, not help. | "the application", "how the file gets read" |
+| "capstone" | Internal program vocabulary. Outside the building it means nothing or it means something else. | "the project", "what they build" |
+| "first come first served" | Whetstone selects. Saying this converts a selection into a queue and creates an obligation that was never made. | "we are selecting a small number of families" |
+| "you'll get a spot" | Same failure, stated as a promise to one person. Nothing has been promised to anyone. | "you can apply", "we will let you know either way" |
+
+**No promised outcomes. Ever.** Do not state, imply, or hint at an admission, a
+score, a scholarship, a result, or a probability of any of them. This holds even
+when the reader asks directly, even when the prediction would be favourable, and
+even when it is hedged. Describe the mechanism, name the risk honestly, and let
+the specificity do the persuading. A sentence that would make a parent feel
+promised something is a failure regardless of how it is qualified.
+
+Two related rules, for the same reason:
+
+- The offer is an application, not a reservation. Never describe a seat as held,
+  reserved, guaranteed, or secured before a human has confirmed it.
+- Never present scarcity as a countdown or a pressure tactic. State the
+  mechanism and the reason. Reasons, not pressure.
+
 ## Banned words and phrases
 
 Do not use these in external drafts:
@@ -137,7 +167,13 @@ student's quality with another's.
 
 Before model QA, the voice lint must be able to flag at least:
 
-- banned words or phrases;
+- the six positioning bans above, matched case insensitively and as whole
+  phrases, including common variants such as "free consultation";
+- promised-outcome patterns: an admission, score, scholarship, result, or
+  probability stated, implied, or hedged;
+- reservation language: seat held, reserved, guaranteed, secured, or "first
+  come first served";
+- other banned words or phrases;
 - em dash and en dash;
 - channel-specific word limits;
 - missing source-specific detail;

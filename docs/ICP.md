@@ -28,24 +28,79 @@ identity are not sources.
 
 ## Wyzant fit
 
-Cole's approved Wyzant subjects are:
+Cole's approved Wyzant subjects, as stated by the owner on 2026-08-26, are
+exactly these four:
 
-- SAT
-- ACT
-- College admissions
-- College counseling
-- College essay
-- Essay writing
+- College Counseling
+- English
+- Essay Writing
+- SAT Reading
 
-The v1 geographic pilot is Manhattan / New York, NY. Online or remote jobs are
-excluded by default and require an explicit operator decision to enter the
-pilot. Geography is a routing rule, not a claim that other locations are poor
-fits.
+This list is owner-stated and supersedes any subject list found in the archived
+v1 adapter configuration. The v1 configuration predates Cole's current
+approvals and must never be used as the source for this list again.
+
+### Explicitly out of scope
+
+Cole is not approved for the following. An inquiry whose subject falls here is
+classified `out_of_scope`. It is never scored, never researched, and never
+drafted for, because accepting it would mean preparing outreach for work Cole
+cannot take.
+
+- SAT Math
+- SAT Writing and Language, unless the request is squarely reading based
+- ACT Math
+- ACT English
+- ACT Science
+- ACT Reading
+- Any subject not in the approved list above
+
+A composite request that mixes an approved subject with an out-of-scope one is
+`needs_human_review`, not an automatic pass. Cole decides whether the approved
+portion is worth taking on its own.
+
+### Geography
+
+The pilot serves in-person Manhattan / New York, NY **and** online or remote
+jobs. Both are in scope by default.
+
+Geography is a routing rule that decides which room a prospect belongs in. It
+never disqualifies a prospect on its own. Excluding online work would discard
+the larger share of available volume and would contradict the standing position
+that distance changes the format of the meeting and nothing else.
+
+Recorded as a pending owner confirmation in `FACTS.md` under `D-001`. If Cole
+rules the other way, change it there and here together.
+
+### Grade range and stage rules
+
+The pilot serves students in grades 8 through 12, and their parents or
+guardians.
+
+Two stage rules override a subject match:
+
+- **Too early.** A student in grade 5 through 7 is not a fit for the paid
+  services now. The classification is `out_of_scope` with reason `too_early`,
+  and the recorded next step is the free guide and the nurture list. There is
+  no flat no. Being early is not a defect and the record stays warm.
+- **Too late.** A senior with roughly three weeks or less before a submission
+  deadline is a disqualifier, not a rush job. The classification is `icp_fail`
+  with reason `too_late`, and the recorded next step is to say so plainly and
+  recommend a single honest read of the draft they already have rather than a
+  full engagement. Turning this person away in writing is the intended
+  behavior, not a lost sale.
+
+Both rules are decided before any subject check. A student outside grades 8
+through 12 never reaches the subject screen.
+
+### Wyzant screen
 
 A Wyzant inquiry passes the ICP screen when all of the following are true:
 
 - It is visible through Cole's operator-owned account.
-- The subject matches one of the approved subjects above.
+- The subject matches one of the four approved subjects above, and no part of
+  the request falls in the out-of-scope list.
+- The student is in grades 8 through 12, and neither stage rule above fires.
 - The inquiry asks for tutoring, test preparation, counseling, or essay help
   that Whetstone actually offers.
 - The message has enough specific context for a useful response without
