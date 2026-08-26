@@ -141,7 +141,12 @@ and a terminal. These are acceptance gates, not aspirations.
 - **U3** `/today` opens on at most five decisions, artifact inline (Phase 7)
 - **U4** the full daily loop completes at 390px (Phase 7)
 - **U5** approve to send to logged is two taps plus the one paste G1 requires
-- **U6** hosted Postgres with a backup verified by an actual restore
+- **U6** hosted Postgres with a backup verified by an actual restore. **Deferred
+  by the owner on 2026-08-26, not waived.** Supabase Free has no automatic
+  backups, so today there is no backup to restore rather than an unverified one.
+  That is acceptable only while the database holds no real data. **U6 must close
+  before Phase 3 ingests its first real lead**, because that is the phase where
+  families' names and inquiry text enter the database
 - **U7** no table in `public` is readable, writable or deletable by the `anon`
   key, verified against the live deployment rather than a config screen
 

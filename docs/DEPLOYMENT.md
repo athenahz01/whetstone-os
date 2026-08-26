@@ -162,6 +162,23 @@ restore drill already creates, never against production.
 
 ## Backup restore drill
 
+**Status: deferred by the owner on 2026-08-26. Not waived, and not because
+Supabase covers it.**
+
+Supabase Free does not include automatic daily backups; the vendor recommends
+regular manual `db dump` exports. So the current position is not "the backup is
+unverified", it is **there is no backup**. Losing or corrupting the database
+today would mean losing everything in it.
+
+That is a reasonable trade right now, because the database holds one synthetic
+acceptance row and nothing else. It stops being reasonable the moment real
+inquiries land.
+
+**Trigger: this drill must pass before Phase 3 ingests its first real lead.**
+Phase 3 is where a family's name and the text of what they wrote to Cole enter
+the database. Either run the drill by then, or move the project to Supabase Pro
+so daily backups exist and the drill verifies a real one.
+
 Use a separate, disposable Supabase project for the drill. Download a production
 backup through the Supabase dashboard or supported database tooling, restore it
 to that disposable project, and set `RESTORE_DATABASE_URL` to the restored
