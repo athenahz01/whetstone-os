@@ -159,6 +159,18 @@ Entry level is set by **what a workflow can touch**, not by seniority:
 - **Produces something external → YELLOW, always.** Promotion of one of these to GREEN requires a documented window at ≥90% success and ≥80% acceptance, recorded in `docs/AUTONOMY-LOG.md` (create the file, empty with its header, in Phase 2).
 - **Nothing is ever promoted into RED.** RED is not a higher tier; it is the set of things the system does not do.
 
+**Implementation note, decided in Phase 2 and audited.** The shipped
+`ApprovalLevel` type has exactly **two** members, `GREEN | YELLOW`. The
+human-owned level is absent from the type rather than present-and-guarded, so a
+workflow at that level fails typecheck instead of being constructed and then
+rejected at runtime. A guarded third member would be exactly the flag that could
+be flipped that this section rules out. `tests/red-level-absent.test.ts`
+enforces both the absence from shipped source and the two-member type. The three
+levels remain the conceptual model here and in Cole's brief; the third is simply
+the set of work that has no workflow, so there is nothing to label. Do not
+"fix" this by restoring the member.
+
+
 ---
 
 ## Non-negotiable KPI honesty rules
