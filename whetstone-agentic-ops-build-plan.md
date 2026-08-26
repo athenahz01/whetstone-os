@@ -268,6 +268,7 @@ Phases 0-7 are the sales proof point. Phase 8 is the marketing proof point. Phas
 - [ ] **U1** - laptop shut down. A lead is ingested by the scheduled poll and an alert email lands on the phone.
 - [ ] **U2a** - the runtime stays up with no terminal: no process to start, nothing to keep alive, no command to re-run after a crash. (**U2b** - restart, retry and pause as buttons - lands in Phase 7, where there is a surface to put them on.)
 - [ ] **U6** - data in hosted Postgres; automated backup verified by a restore into a scratch database.
+- [ ] **U7** - no table in `public` is readable, writable or deletable by the `anon` key. Verified against the live deployment, not a config screen. Prisma creates tables without row-level security and Supabase grants `anon` access to everything in `public`, so this is the default state, not an unlucky one.
 - [ ] Auth works from a phone browser.
 - [ ] All five regression locks pass, each named for its bug.
 - [ ] `org_id` present on every table, with a migration test asserting it.
@@ -565,6 +566,7 @@ Renders at `/brief` and sends by email. Fully GREEN - it reads, reports and reco
 
 **Build.**
 - **Session-staleness detection** for the Wyzant storage state: N consecutive empty polls or a login redirect raises `SESSION_STALE` with a link to the documented re-capture ritual. Silent failure looks identical to a quiet day and is the thing that destroys trust in an ops system.
+- An `anon`-key probe against every table in `public`, run against the live deployment and expected to return nothing. This is U7 and it is checked every phase, not once.
 - Backup verification by restore. Secrets audit. Cost caps live. Kill switch tested. An incident runbook covering: API down, the alert transport down, Wyzant session expired, cost cap tripped, bad drafts shipping.
 - **Generate the nine deliverables**, each from the running system rather than written by hand:
   1. Working sales pilot → Phases 3-7

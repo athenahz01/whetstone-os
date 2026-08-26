@@ -142,6 +142,8 @@ and a terminal. These are acceptance gates, not aspirations.
 - **U4** the full daily loop completes at 390px (Phase 7)
 - **U5** approve to send to logged is two taps plus the one paste G1 requires
 - **U6** hosted Postgres with a backup verified by an actual restore
+- **U7** no table in `public` is readable, writable or deletable by the `anon`
+  key, verified against the live deployment rather than a config screen
 
 Design test for any UI decision: would Athena do this from her phone while
 walking? If no, it is not shipped.
