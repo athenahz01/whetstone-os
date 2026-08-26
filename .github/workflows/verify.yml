@@ -1,0 +1,36 @@
+name: Verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm prisma:generate
+        env:
+          DATABASE_URL: postgresql://user:pass@db.invalid:5432/whetstone
+          DIRECT_URL: postgresql://user:pass@db.invalid:5432/whetstone
+      - run: pnpm docs:lint
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build
+        env:
+          DATABASE_URL: postgresql://user:pass@db.invalid:5432/whetstone
+          DIRECT_URL: postgresql://user:pass@db.invalid:5432/whetstone
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: test-anon-key

@@ -1,11 +1,8 @@
 # Whetstone OS
 
 Whetstone OS is the hosted, human-controlled replacement for Growth Engine v1.
-
-Phase 0 contains ground-truth documentation only. It intentionally contains no
-application, agent, adapter, database, scheduler, or deployment code. No later
-phase may start until Phase 0 is audited and the executor receives the literal
-word `continue`.
+Phase 1 moves ingestion, drafting, alerts, persistence, and review access into
+managed cloud runtimes so no workstation needs to remain online.
 
 ## Build documents - read these first
 
@@ -29,7 +26,7 @@ context loader alongside `docs/ICP.md` and friends.
 
 ## Phase 0 record
 
-- Growth Engine v1 archive: `C:\AA_Whetstone\whetstone-growth-engine`
+- Growth Engine v1 archive: sibling repository `whetstone-growth-engine`
 - Archive commit: `89bcb58` (`Archive Growth Engine v1 before hosted rebuild`)
 - Archive safety order: ignore rules first, secret scan second, commit third
 - Secret scan: 80 non-ignored candidate files, 0 credential-pattern findings
@@ -45,8 +42,8 @@ context loader alongside `docs/ICP.md` and friends.
 
 Neither this repository nor the v1 archive has a git remote, and neither has
 been pushed. Until the archive is pushed, the Sonnet 5 `temperature` fix and the
-widened `*.wyzant.com` host check exist on this laptop and nowhere else. See
-`C:\AA_Whetstone\PUSH-THE-ARCHIVE.md`.
+widened `*.wyzant.com` host check exist in the local archive only. See the
+workspace-level `PUSH-THE-ARCHIVE.md`.
 
 ## Agent-readable context
 
@@ -67,3 +64,10 @@ decision.
 produce Wright, scholarship, applicant, or parent-facing copy that touches a
 blocked fact. Wyzant tutoring responses remain eligible in later phases because
 they do not use those disputed applicant-program facts.
+
+## Phase 1 commands
+
+Use Node 20+ and pnpm 10. Configure secrets from `.env.example`, then run
+`pnpm install`, `pnpm prisma:generate`, and `pnpm test`. Production migrations
+run with `pnpm prisma:migrate:deploy`. See `docs/DEPLOYMENT.md` for the complete
+hosted setup and restore drill.

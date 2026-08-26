@@ -1,0 +1,41 @@
+name: Wyzant poll
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: wyzant-poll
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Apply schedule jitter
+        run: sleep $((RANDOM % 121))
+      - name: Poll and ingest
+        run: pnpm wyzant:poll
+        env:
+          WYZANT_STORAGE_STATE_JSON: ${{ secrets.WYZANT_STORAGE_STATE_JSON }}
+          WYZANT_FEED_URL: ${{ vars.WYZANT_FEED_URL }}
+          WYZANT_TARGET_SUBJECTS: College Counseling|English|Essay Writing|SAT Reading
+          WYZANT_TARGET_LOCATIONS: Manhattan|New York, NY
+          WYZANT_INCLUDE_ONLINE_JOBS: "true"
+          WYZANT_TUTOR_ID: tutor-admissions
+          INGEST_URL: ${{ secrets.INGEST_URL }}
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}

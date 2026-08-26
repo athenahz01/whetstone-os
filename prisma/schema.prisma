@@ -1,0 +1,135 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Tutor {
+  id           String         @id
+  orgId        String         @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
+  name         String
+  slug         String
+  product      String
+  active       Boolean        @default(true)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  leads        Lead[]
+  outcomes     Outcome[]
+  profile      Profile?
+  metricsDaily MetricsDaily[]
+
+  @@unique([orgId, slug])
+  @@index([orgId, active, name])
+  @@map("tutors")
+}
+
+model Lead {
+  id                String    @id
+  orgId             String    @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
+  channel           String
+  author            String
+  text              String
+  subject           String?
+  location          String?
+  url               String
+  postedAt          DateTime  @map("posted_at") @db.Timestamptz(3)
+  raw               Json?
+  score             Int
+  status            String    @default("new")
+  firstRespondedAt  DateTime? @map("first_responded_at") @db.Timestamptz(3)
+  alertReservedAt   DateTime? @map("alert_reserved_at") @db.Timestamptz(3)
+  alertedAt         DateTime? @map("alerted_at") @db.Timestamptz(3)
+  prefillApprovedAt DateTime? @map("prefill_approved_at") @db.Timestamptz(3)
+  sentAt            DateTime? @map("sent_at") @db.Timestamptz(3)
+  sentBy            String?   @map("sent_by")
+  tutorId           String?   @map("tutor_id")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  drafts            Draft[]
+  outcomes          Outcome[]
+  tutor             Tutor?    @relation(fields: [tutorId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, channel, postedAt])
+  @@index([orgId, tutorId, postedAt])
+  @@index([orgId, alertReservedAt, score])
+  @@index([orgId, alertedAt, alertReservedAt])
+  @@index([orgId, sentAt, postedAt])
+  @@map("leads")
+}
+
+model Draft {
+  id         Int       @id @default(autoincrement())
+  orgId      String    @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
+  leadId     String    @map("lead_id")
+  tutorId    String    @map("tutor_id")
+  variant    String
+  body       String
+  approvedAt DateTime? @map("approved_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  lead       Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, leadId])
+  @@map("drafts")
+}
+
+model Outcome {
+  id           String   @id
+  orgId        String   @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
+  leadId       String   @map("lead_id")
+  tutorId      String?  @map("tutor_id")
+  status       String
+  revenueCents Int      @default(0) @map("revenue_cents")
+  occurredAt   DateTime @map("occurred_at") @db.Timestamptz(3)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  lead         Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  tutor        Tutor?   @relation(fields: [tutorId], references: [id], onDelete: SetNull)
+
+  @@unique([orgId, leadId])
+  @@index([orgId, occurredAt, status])
+  @@index([orgId, tutorId, occurredAt])
+  @@map("outcomes")
+}
+
+model Profile {
+  id        String   @id
+  orgId     String   @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
+  tutorId   String   @unique @map("tutor_id")
+  shortBio  String   @map("short_bio")
+  rateCents Int      @map("rate_cents")
+  faq       Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  tutor     Tutor    @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("profiles")
+}
+
+model MetricsDaily {
+  id                       Int      @id @default(autoincrement())
+  orgId                    String   @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
+  date                     DateTime @db.Date
+  tutorId                  String   @map("tutor_id")
+  tutorName                String   @map("tutor_name")
+  product                  String
+  opportunities            Int      @default(0)
+  replies                  Int      @default(0)
+  callsBooked              Int      @default(0) @map("calls_booked")
+  conversions              Int      @default(0)
+  responseTimeTotalMinutes Int      @default(0) @map("response_time_total_minutes")
+  respondedLeadCount       Int      @default(0) @map("responded_lead_count")
+  revenueCents             Int      @default(0) @map("revenue_cents")
+  source                   String   @default("engine")
+  createdAt                DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  tutor                    Tutor    @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, date, tutorId])
+  @@index([orgId, date, tutorId])
+  @@index([orgId, source, date])
+  @@map("metrics_daily")
+}

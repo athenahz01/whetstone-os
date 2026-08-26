@@ -1,0 +1,9 @@
+.next/
+node_modules/
+coverage/
+pnpm-lock.yaml
+codex-master-prompt.md
+whetstone-agentic-ops-build-plan.md
+docs/*.md
+!docs/DEPLOYMENT.md
+scripts/docs-lint.mjs
