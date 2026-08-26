@@ -1,12 +1,13 @@
 import type { FlagStore } from "../lib/core/governor";
-import type {
-  ApprovalRecord,
-  CreateRunInput,
-  FinishRunInput,
-  RecordExceptionInput,
-  RecordMeasurementInput,
-  RecordStepInput,
-  RunStore,
+import {
+  GRANTING_DECISIONS,
+  type ApprovalRecord,
+  type CreateRunInput,
+  type FinishRunInput,
+  type RecordExceptionInput,
+  type RecordMeasurementInput,
+  type RecordStepInput,
+  type RunStore,
 } from "../lib/core/run-store";
 import type { Step, Workflow } from "../lib/core/workflow";
 
@@ -70,12 +71,26 @@ export class MemoryRunStore implements RunStore {
     this.exceptions.push(input);
   }
 
+  /**
+   * Mirrors `PrismaRunStore.findGrantingApproval` exactly, including where that
+   * is more permissive than it reads.
+   *
+   * It must NOT trim. `approved_by` is TEXT, so the SQL `approved_by <> ''` is
+   * TRUE for a whitespace-only value and the row is returned. A fake that
+   * trimmed would be stricter than the store, and the suite would prove a
+   * property production does not have: the trim in `workflow.ts` is what
+   * actually refuses that row, and it has to be reachable from here to be
+   * tested.
+   *
+   * `decision` uses the same exported allowlist rather than a restated
+   * denylist, so the two cannot drift apart again.
+   */
   async findGrantingApproval(runId: string): Promise<ApprovalRecord | null> {
     const approval = this.approvals.find(
       (candidate) =>
         candidate.runId === runId &&
-        candidate.approvedBy.trim() !== "" &&
-        candidate.decision !== "reject",
+        candidate.approvedBy !== "" &&
+        GRANTING_DECISIONS.includes(candidate.decision),
     );
     return approval ?? null;
   }

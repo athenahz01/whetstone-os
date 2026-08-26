@@ -5,6 +5,18 @@ export type RunStatus = "running" | "succeeded" | "failed";
 export type StepStatus = "succeeded" | "failed";
 export type ApprovalDecision = "accept" | "accept-with-edits" | "reject";
 
+/**
+ * The decisions that permit an external action, as an allowlist.
+ *
+ * A denylist ("anything that is not reject") would let a value nobody has
+ * thought of yet, such as "pending", grant. Exported so the test double reads
+ * the same constant rather than restating it and drifting.
+ */
+export const GRANTING_DECISIONS: readonly ApprovalDecision[] = [
+  "accept",
+  "accept-with-edits",
+];
+
 export interface CreateRunInput {
   workflowId: string;
   trigger: string;
@@ -119,12 +131,20 @@ export class PrismaRunStore implements RunStore {
     });
   }
 
+  /**
+   * `approved_by` is TEXT, so `approved_by <> ''` is TRUE for a whitespace-only
+   * value: SQL does no trimming here, and only char(n) would ignore trailing
+   * spaces. That row comes back from this query. It is refused a layer up by
+   * the trim in `workflow.ts`, and it cannot be written in the first place
+   * because of the `approvals_approved_by_not_blank` CHECK constraint. Three
+   * independent layers, each verified on its own.
+   */
   async findGrantingApproval(runId: string): Promise<ApprovalRecord | null> {
     const approval = await this.client.approval.findFirst({
       where: {
         orgId: this.orgId,
         runId,
-        decision: { in: ["accept", "accept-with-edits"] },
+        decision: { in: [...GRANTING_DECISIONS] },
         approvedBy: { not: "" },
       },
       orderBy: { decidedAt: "desc" },
