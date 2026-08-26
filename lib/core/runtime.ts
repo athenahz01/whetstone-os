@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { TelegramAlertService, type AlertService } from "./alerts";
+import { EmailAlertService, type AlertService } from "./alerts";
 import { prisma } from "./db";
 import { ClaudeDraftService, PrismaDraftProfileRepository } from "./drafting";
 import { GrowthEngine } from "./engine";
@@ -9,7 +9,7 @@ import type { ChannelAdapter } from "./types";
 export function createGrowthEngine(
   adapters: ChannelAdapter[],
   client: PrismaClient = prisma,
-  alerts: AlertService = createTelegramAlertsFromEnv(),
+  alerts: AlertService = createAlertsFromEnv(),
 ): GrowthEngine {
   return new GrowthEngine({
     adapters,
@@ -25,15 +25,18 @@ export function createGrowthEngine(
   });
 }
 
-export function createTelegramAlertsFromEnv(): TelegramAlertService {
-  return new TelegramAlertService({
-    token: process.env.TELEGRAM_BOT_TOKEN,
-    chatId: process.env.TELEGRAM_CHAT_ID,
-    reviewBaseUrl:
-      process.env.TELEGRAM_REVIEW_BASE_URL ||
-      (process.env.NEXT_PUBLIC_SITE_URL
-        ? `${process.env.NEXT_PUBLIC_SITE_URL}/today`
-        : undefined),
+export function createAlertsFromEnv(): EmailAlertService {
+  return new EmailAlertService({
+    host: process.env.ALERT_SMTP_HOST,
+    port: process.env.ALERT_SMTP_PORT,
+    secure: process.env.ALERT_SMTP_SECURE,
+    user: process.env.ALERT_SMTP_USER,
+    password: process.env.ALERT_SMTP_PASSWORD,
+    from: process.env.ALERT_EMAIL_FROM,
+    to: process.env.ALERT_EMAIL_TO,
+    reviewBaseUrl: process.env.NEXT_PUBLIC_SITE_URL
+      ? `${process.env.NEXT_PUBLIC_SITE_URL}/today`
+      : undefined,
   });
 }
 

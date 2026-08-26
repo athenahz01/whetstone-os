@@ -3,7 +3,7 @@ import { prisma } from "../../../../lib/core/db";
 import { checkPollHeartbeat } from "../../../../lib/core/heartbeat";
 import {
   createGrowthEngine,
-  createTelegramAlertsFromEnv,
+  createAlertsFromEnv,
 } from "../../../../lib/core/runtime";
 import { secretMatches } from "../../../../lib/http/secret";
 
@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   if (!secretMatches(token, process.env.CRON_SECRET)) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const alerts = createTelegramAlertsFromEnv();
+  const alerts = createAlertsFromEnv();
   const heartbeat = await checkPollHeartbeat(prisma, alerts, {
     staleAfterMinutes: positiveInteger(
       process.env.WYZANT_HEARTBEAT_STALE_MINUTES,

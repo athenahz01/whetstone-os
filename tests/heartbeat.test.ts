@@ -114,7 +114,7 @@ describe("scheduled poll heartbeat", () => {
     );
   });
 
-  it("does not latch a stale alert while Telegram is disabled", async () => {
+  it("does not latch a stale alert while alert email is disabled", async () => {
     const { client, updateMany } = clientWithHeartbeat({
       lastRunAt: new Date("2026-08-26T16:00:00.000Z"),
       staleAlertedAt: null,

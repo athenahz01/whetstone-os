@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createEmailAdapterFromEnv } from "../lib/adapters/email";
-import { TelegramAlertService } from "../lib/core/alerts";
+import { EmailAlertService } from "../lib/core/alerts";
 import {
   ClaudeDraftService,
   DraftingUnavailableError,
@@ -8,9 +8,9 @@ import {
 import { lead } from "./helpers";
 
 describe("optional service degradation", () => {
-  it("warns once and disables Telegram when credentials are absent", async () => {
+  it("warns once and disables alert email when credentials are absent", async () => {
     const warn = vi.fn();
-    const alerts = new TelegramAlertService({ warn });
+    const alerts = new EmailAlertService({ warn });
     await alerts.notify(lead(), 100);
     await alerts.notify(lead(), 100);
     expect(alerts.isEnabled()).toBe(false);

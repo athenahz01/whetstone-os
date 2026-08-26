@@ -12,8 +12,8 @@ export function GET() {
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
       ),
       drafting: Boolean(process.env.ANTHROPIC_API_KEY),
-      telegram: Boolean(
-        process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID,
+      alerts: Boolean(
+        process.env.ALERT_SMTP_HOST && process.env.ALERT_EMAIL_TO,
       ),
       email: Boolean(
         process.env.EMAIL_IMAP_HOST && process.env.EMAIL_IMAP_USER,

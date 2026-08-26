@@ -72,8 +72,45 @@ Playwright browser directory are cached between runs.
 Every fully successful poll writes the `wyzant-github-actions` heartbeat through
 the ingest request, even when it finds zero leads. Vercel checks that heartbeat
 on its scheduled tick. After 45 minutes without a successful poll it sends one
-Telegram exception identifying Actions billing, scheduling, and session state
-as the first checks. A new successful heartbeat clears the alert latch.
+exception email identifying Actions billing, scheduling, and session state as
+the first checks. A new successful heartbeat clears the alert latch.
+
+## Alert email
+
+Alerts are plain SMTP, configured entirely by environment variable. There is no
+vendor SDK, so moving from Gmail to Postmark, Resend or anything else is an env
+change with no code change.
+
+1. Turn on two-step verification for the sending Google account, then create an
+   app password for mail. Use that value for `ALERT_SMTP_PASSWORD`. A normal
+   account password will not authenticate.
+2. Set `ALERT_SMTP_HOST` to `smtp.gmail.com`, `ALERT_SMTP_PORT` to `465`, and
+   `ALERT_SMTP_SECURE` to `true`.
+3. Set `ALERT_SMTP_USER` and `ALERT_EMAIL_FROM` to the sending address, and
+   `ALERT_EMAIL_TO` to the operator inbox that should receive alerts. Sending
+   from an account to itself is fine and is the intended starting setup.
+4. If `ALERT_EMAIL_TO` is unset, alerts are disabled. The runtime warns once and
+   keeps ingesting, exactly like a missing model key.
+
+`ALERT_EMAIL_TO` is the only address this system can mail. The alert service
+takes no recipient argument, and a lead address never reaches the transport.
+This is not a path to message a prospect and must never become one.
+
+Email is a weaker alert than a push notification, so the phone filter is what
+makes the alert actually arrive. Every subject starts with `[Whetstone] `:
+
+```
+Subject: [Whetstone] Hot lead 87 - College Counseling, Manhattan
+Subject: [Whetstone] Exception - SESSION_STALE
+```
+
+In Gmail, create a filter matching the subject prefix, star it and mark it
+important, and in the mobile Gmail app set that label to notify for every
+message. Confirm the notification arrives before treating U1 as met.
+
+Alert bodies carry the score, subject, location, channel and review link only.
+No lead message text and no lead contact details, because an inbox keeps a copy
+forever and the G5 restraint that applies to logs applies here too.
 
 ## Backup restore drill
 
@@ -114,9 +151,11 @@ Use this deterministic drill before waiting for live Wyzant traffic:
 }
 ```
 
-3. Require HTTP 200, a Telegram hot-lead alert, and a new Postgres lead row.
-4. Open the Telegram review link on a phone, request a magic link, authenticate,
-   and confirm the synthetic record appears on the hosted Today view.
+3. Require HTTP 200, a `[Whetstone] Hot lead` alert email arriving on the phone,
+   and a new Postgres lead row.
+4. Open the review link from that email on the phone, request a magic link,
+   authenticate, and confirm the synthetic record appears on the hosted Today
+   view.
 5. Separately confirm a scheduled GitHub run advances `poll_heartbeats` while
    every development machine remains off. A later real Wyzant lead confirms the
    source poll, but does not block this deterministic Phase 1 drill.

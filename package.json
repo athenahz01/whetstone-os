@@ -32,14 +32,15 @@
     "imapflow": "^1.5.0",
     "mailparser": "^3.9.14",
     "next": "^16.2.11",
+    "nodemailer": "^9.0.5",
     "playwright": "^1.62.0",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "telegraf": "^4.16.3"
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@types/mailparser": "^3.4.6",
     "@types/node": "^26.0.0",
+    "@types/nodemailer": "^8.0.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "eslint": "^9.39.0",

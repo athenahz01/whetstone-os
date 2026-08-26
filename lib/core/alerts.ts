@@ -1,12 +1,27 @@
-import { Telegraf } from "telegraf";
+import { createTransport } from "nodemailer";
 import type { Lead } from "./types";
 
-interface TelegramClient {
-  sendMessage(
-    chatId: string,
-    text: string,
-    options?: { link_preview_options?: { is_disabled: boolean } },
-  ): Promise<unknown>;
+/**
+ * Every alert subject carries this prefix so a Gmail filter can match it and
+ * raise a phone notification. Email is a weaker alert than push, so the filter
+ * is load bearing and the prefix is part of the contract.
+ */
+export const ALERT_SUBJECT_PREFIX = "[Whetstone] ";
+
+/**
+ * The outgoing envelope. There is deliberately no reply-to, cc or bcc field:
+ * the operator address is the only destination this system can ever mail, and
+ * a lead address must never reach the transport. See G1.
+ */
+export interface AlertEnvelope {
+  from: string;
+  to: string;
+  subject: string;
+  text: string;
+}
+
+export interface AlertTransport {
+  sendMail(message: AlertEnvelope): Promise<unknown>;
 }
 
 export interface AlertService {
@@ -26,41 +41,49 @@ export class StubAlertService implements AlertService {
   async notify(): Promise<void> {}
 }
 
-interface TelegramAlertConfig {
-  client: TelegramClient;
-  chatId: string;
+interface EmailAlertConfig {
+  transport: AlertTransport;
+  from: string;
+  to: string;
   reviewBaseUrl: string;
 }
 
-export interface TelegramAlertServiceOptions {
-  token?: string;
-  chatId?: string;
+export interface EmailAlertServiceOptions {
+  host?: string;
+  port?: string | number;
+  secure?: string | boolean;
+  user?: string;
+  password?: string;
+  from?: string;
+  /** The operator inbox. Never a lead, never a parameter on notify(). */
+  to?: string;
   reviewBaseUrl?: string;
-  client?: TelegramClient;
+  transport?: AlertTransport;
   warn?: (message: string) => void;
 }
 
-export class TelegramAlertService implements AlertService {
-  private readonly chatId?: string;
+export class EmailAlertService implements AlertService, ExceptionAlertService {
+  private readonly from?: string;
+  private readonly to?: string;
   private readonly reviewBaseUrl?: string;
-  private readonly client?: TelegramClient;
+  private readonly transport?: AlertTransport;
   private readonly warn: (message: string) => void;
   private warnedDisabled = false;
 
-  constructor(options: TelegramAlertServiceOptions) {
-    this.chatId = options.chatId?.trim() || undefined;
+  constructor(options: EmailAlertServiceOptions) {
+    this.from = options.from?.trim() || undefined;
+    this.to = options.to?.trim() || undefined;
     this.reviewBaseUrl = options.reviewBaseUrl?.trim() || undefined;
     this.warn = options.warn ?? console.warn;
-    if (options.client) this.client = options.client;
-    else if (options.token?.trim()) {
-      this.client = new Telegraf(options.token.trim()).telegram;
-    }
+    if (options.transport) this.transport = options.transport;
+    else this.transport = createSmtpTransport(options);
   }
 
   isEnabled(): boolean {
     return (
-      this.client !== undefined &&
-      this.chatId !== undefined &&
+      this.transport !== undefined &&
+      this.from !== undefined &&
+      this.to !== undefined &&
       this.reviewBaseUrl !== undefined
     );
   }
@@ -68,44 +91,82 @@ export class TelegramAlertService implements AlertService {
   async notify(lead: Lead, score: number): Promise<void> {
     const ready = this.readyConfig();
     if (!ready) return;
-    const { client, chatId, reviewBaseUrl } = ready;
 
-    const reviewUrl = new URL(reviewBaseUrl);
+    const descriptor = [lead.subject ?? "New opportunity", lead.location]
+      .filter(Boolean)
+      .join(", ");
+    const reviewUrl = new URL(ready.reviewBaseUrl);
     reviewUrl.searchParams.set("leadId", lead.id);
-    await client.sendMessage(
-      chatId,
-      [
-        `Hot lead, score ${score}`,
-        `${lead.subject ?? "New opportunity"}${lead.location ? `, ${lead.location}` : ""}`,
-        `Review: ${reviewUrl.toString()}`,
-      ].join("\n"),
-      { link_preview_options: { is_disabled: true } },
-    );
+    await this.send(ready, `Hot lead ${score} - ${descriptor}`, [
+      `Score: ${score}`,
+      `Subject: ${lead.subject ?? "New opportunity"}`,
+      `Location: ${lead.location ?? "Not stated"}`,
+      `Channel: ${lead.channel}`,
+      `Review: ${reviewUrl.toString()}`,
+    ]);
   }
 
   async notifyException(title: string, detail: string): Promise<void> {
     const ready = this.readyConfig();
     if (!ready) return;
-    const { client, chatId, reviewBaseUrl } = ready;
 
-    await client.sendMessage(
-      chatId,
-      [title, detail, `Review: ${reviewBaseUrl}`].join("\n"),
-      { link_preview_options: { is_disabled: true } },
-    );
+    await this.send(ready, `Exception - ${title}`, [
+      detail,
+      `Review: ${ready.reviewBaseUrl}`,
+    ]);
   }
 
-  private readyConfig(): TelegramAlertConfig | null {
-    const { client, chatId, reviewBaseUrl } = this;
-    if (client && chatId && reviewBaseUrl) {
-      return { client, chatId, reviewBaseUrl };
+  /**
+   * A transport failure can never propagate. `engine.ts` does not guard the
+   * alert call, so an SMTP timeout escaping here would kill the whole tick.
+   */
+  private async send(
+    config: EmailAlertConfig,
+    subject: string,
+    lines: string[],
+  ): Promise<void> {
+    try {
+      await config.transport.sendMail({
+        from: config.from,
+        to: config.to,
+        subject: `${ALERT_SUBJECT_PREFIX}${subject}`,
+        text: lines.join("\n"),
+      });
+    } catch (error) {
+      console.error("[alerts:send-failed]", {
+        errorType: error instanceof Error ? error.name : "UnknownError",
+      });
+    }
+  }
+
+  private readyConfig(): EmailAlertConfig | null {
+    const { transport, from, to, reviewBaseUrl } = this;
+    if (transport && from && to && reviewBaseUrl) {
+      return { transport, from, to, reviewBaseUrl };
     }
     if (!this.warnedDisabled) {
       this.warnedDisabled = true;
       this.warn(
-        "Telegram alerts are disabled: token, chat ID, and hosted review URL are required.",
+        "Alert email is disabled: SMTP host, user, password, sender, ALERT_EMAIL_TO, and hosted review URL are required.",
       );
     }
     return null;
   }
+}
+
+function createSmtpTransport(
+  options: EmailAlertServiceOptions,
+): AlertTransport | undefined {
+  const host = options.host?.trim();
+  const user = options.user?.trim();
+  const password = options.password?.trim();
+  if (!host || !user || !password) return undefined;
+  const port = Number(options.port);
+  return createTransport({
+    host,
+    port: Number.isInteger(port) && port > 0 ? port : 465,
+    secure:
+      options.secure === undefined ? true : `${options.secure}` !== "false",
+    auth: { user, pass: password },
+  });
 }

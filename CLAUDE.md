@@ -82,11 +82,6 @@ one, **stop and flag it** instead of proceeding.
 3. **G3 human-cadence polling.** Minutes, jittered.
 4. **G4 on-platform.** Nothing that evades Wyzant fee or lesson tracking, or
    moves a lesson off platform.
-
-**Note on the alert transport.** Alerts moved from Telegram to email by owner
-choice. The alert sender takes no recipient argument and mails only
-`ALERT_EMAIL_TO`. It is not, and must never become, a path to message a
-prospect. That is G1, restated for a component that can now send mail.
 5. **G5 secrets in env only.** Never committed, never logged. No PII message
    bodies at info level.
 6. **G6 no cold outbound to parents of minors.** Inbound inquiries, dormant
@@ -94,6 +89,11 @@ prospect. That is G1, restated for a component that can now send mail.
    only.
 7. **G7 no comparative ranking of students.** No leaderboards, no cross-student
    scoring shown to a student or parent.
+
+**Note on the alert transport.** Alerts moved from Telegram to email by owner
+choice. The alert sender takes no recipient argument and mails only
+`ALERT_EMAIL_TO`. It is not, and must never become, a path to message a
+prospect. That is G1, restated for a component that can now send mail.
 
 ## The five regression locks
 
