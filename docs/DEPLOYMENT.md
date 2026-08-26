@@ -45,6 +45,9 @@ this project active, so it is not a practical risk here.
 
 1. Create a production project and record its pooled and direct Postgres URLs.
 2. Run `pnpm prisma:migrate:deploy` with `DATABASE_URL` and `DIRECT_URL` set.
+   The second migration enables row-level security on every table. Do not skip
+   it and do not create tables outside a migration. See "Row-level security"
+   below for why.
 3. Enable email OTP in Authentication. Add the production `/auth/confirm` URL to
    the redirect allowlist and restrict access to approved Whetstone operators.
    The callback accepts both the default PKCE `code` response and a custom email
@@ -111,6 +114,51 @@ message. Confirm the notification arrives before treating U1 as met.
 Alert bodies carry the score, subject, location, channel and review link only.
 No lead message text and no lead contact details, because an inbox keeps a copy
 forever and the G5 restraint that applies to logs applies here too.
+
+## Row-level security
+
+Prisma creates tables with no row-level security. Supabase grants the `anon`
+role access to everything in `public` and PostgREST publishes it at
+`/rest/v1/<table>`. The `anon` key is `NEXT_PUBLIC_`, so it ships in the
+JavaScript of every page. Left alone, that combination makes `leads.author` and
+`leads.text` world-readable: under a live Wyzant poll, families' names and the
+text of what they wrote.
+
+`202608260002_enable_row_level_security` closes it for the seven Phase 1 tables.
+There are no policies, because deny-all for `anon` is the intent. The
+application reads through Prisma on the direct connection as the `postgres`
+role, which bypasses RLS, and the Supabase client is used only for
+`supabase.auth.*`, so nothing in the app depends on `anon` table access.
+
+Two rules follow, and both are enforced by `tests/rls-coverage.test.ts`:
+
+1. Every new table enables RLS in the same migration that creates it. Phase 2
+   adds `runs`, `run_steps`, `approvals`, `measurements` and `exceptions`, and
+   all five need it. `approvals` holds human decisions and `exceptions` can hold
+   message fragments, so neither is less sensitive than `leads`.
+2. No migration grants `anon` a policy back in.
+
+`ENABLE ROW LEVEL SECURITY` on an already-enabled table is a no-op, so the
+migration is safe against a project that was fixed by hand in the SQL editor.
+
+### Verifying U7 against the live deployment
+
+A config screen is not evidence. With the deployed anon key, request each table
+and require an empty array:
+
+```powershell
+$tables = "leads","outcomes","drafts","tutors","profiles","metrics_daily","poll_heartbeats"
+foreach ($t in $tables) {
+  $r = Invoke-RestMethod -Uri "$env:NEXT_PUBLIC_SUPABASE_URL/rest/v1/$t?select=*" `
+    -Headers @{ apikey = $env:NEXT_PUBLIC_SUPABASE_ANON_KEY }
+  "$t -> $($r.Count) rows"
+}
+```
+
+Every line must report 0 rows. Read access is the half that has been checked.
+**Anon write and delete are unverified, not proven safe.** Settle them with the
+same probe extended to `POST` and `DELETE`, run against the scratch project the
+restore drill already creates, never against production.
 
 ## Backup restore drill
 
