@@ -145,8 +145,12 @@ and a terminal. These are acceptance gates, not aspirations.
   by the owner on 2026-08-26, not waived.** Supabase Free has no automatic
   backups, so today there is no backup to restore rather than an unverified one.
   That is acceptable only while the database holds no real data. **U6 must close
-  before Phase 3 ingests its first real lead**, because that is the phase where
-  families' names and inquiry text enter the database
+  before the live Wyzant poll is switched on**, because that is the moment
+  families' names and inquiry text enter the database. The line is precise:
+  building Phase 3, verifying selectors against a saved page fixture, and
+  running `ops/wyzant-diagnose.ts` read-only against Cole's board are all fine
+  without U6. Enabling the scheduled poll so real inquiries POST to production
+  `/api/ingest` is not
 - **U7** no table in `public` is readable, writable or deletable by the `anon`
   key, verified against the live deployment rather than a config screen
 
