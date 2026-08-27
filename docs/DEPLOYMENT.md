@@ -87,9 +87,15 @@ still much faster than the source changes. The exact cron has 34 invocations a
 day, or about 1,020 billable minutes in a 30-day month if each job stays under
 one billed minute.
 
-Both Wyzant defaults use the observed `highered.wyzant.com` host. The
-authenticated board capture shows a GET filter with Online and In person as
-separate `lesson_type` radio selections, with one selected at a time. The
+Both Wyzant defaults use the observed `highered.wyzant.com` host. The workflow
+passes `WYZANT_FEED_URL` and `WYZANT_MESSAGES_URL` from repository variables in
+the same way. Configure both variables together or leave both unset so the code
+defaults apply together. Each adapter waits for the final official Wyzant route
+to stay stable before reading the page, and retries one read if client-side
+navigation destroys the evaluation context.
+
+The authenticated board capture shows a GET filter with Online and In person
+as separate `lesson_type` radio selections, with one selected at a time. The
 captured Online view contains Online inventory only. The adapter therefore
 requests both selections when online work is enabled, applies the configured
 subject and in-person location scope in code, and deduplicates the combined

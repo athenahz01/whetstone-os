@@ -41,51 +41,58 @@ export class WyzantAdapter implements ChannelAdapter {
 
   async poll(): Promise<Lead[]> {
     this.extractionExceptions = [];
-    const browser = await (this.options.browserFactory
-      ? this.options.browserFactory()
-      : chromium.launch({ headless: this.options.headless ?? true }));
-    let context: BrowserContext | undefined;
-    try {
-      context = await browser.newContext({
-        storageState: this.options.storageState,
-      });
-      const page = await context.newPage();
-      const jobs = await collectConfiguredWyzantJobs(
-        this.options,
-        async (url, lessonType) => {
-          await page.goto(url, {
-            waitUntil: "domcontentloaded",
-            timeout: 45_000,
-          });
-          await assertAuthenticatedWyzantPage(page);
-          return extractJobs(page, {
-            lessonType,
-            onMalformedJob: ({ nativeId, reason }) => {
-              this.extractionExceptions.push({
-                kind: "WyzantJobMalformed",
-                severity: "warning",
-                message: `${nativeId}: ${reason}`,
-              });
-            },
-          });
-        },
-      );
-      return jobs.map((job) => ({
-        id: stableLeadId(this.name, job.nativeId),
-        channel: this.name,
-        author: job.author,
-        text: job.text,
-        subject: job.subject,
-        location: job.location,
-        url: job.url,
-        postedAt: job.postedAt,
-        tutorId: this.options.tutorId,
-        raw: { nativeId: job.nativeId, lessonType: job.lessonType },
-      }));
-    } finally {
-      await context?.close().catch(() => undefined);
-      await browser.close().catch(() => undefined);
-    }
+    const jobs = await withWyzantBrowserRetry(
+      () =>
+        this.options.browserFactory
+          ? this.options.browserFactory()
+          : chromium.launch({ headless: this.options.headless ?? true }),
+      async (browser) => {
+        const context = await browser.newContext({
+          storageState: this.options.storageState,
+        });
+        try {
+          return await collectConfiguredWyzantJobs(
+            this.options,
+            async (url, lessonType) =>
+              readWyzantRoute(
+                context,
+                url,
+                {
+                  assertUrl: assertAuthenticatedWyzantFeedUrl,
+                  readySelector: "body",
+                },
+                async (page) => {
+                  await assertAuthenticatedWyzantPage(page);
+                  return extractJobs(page, {
+                    lessonType,
+                    onMalformedJob: ({ nativeId, reason }) => {
+                      this.extractionExceptions.push({
+                        kind: "WyzantJobMalformed",
+                        severity: "warning",
+                        message: `${nativeId}: ${reason}`,
+                      });
+                    },
+                  });
+                },
+              ),
+          );
+        } finally {
+          await context.close().catch(() => undefined);
+        }
+      },
+    );
+    return jobs.map((job) => ({
+      id: stableLeadId(this.name, job.nativeId),
+      channel: this.name,
+      author: job.author,
+      text: job.text,
+      subject: job.subject,
+      location: job.location,
+      url: job.url,
+      postedAt: job.postedAt,
+      tutorId: this.options.tutorId,
+      raw: { nativeId: job.nativeId, lessonType: job.lessonType },
+    }));
   }
 
   async send(lead: Lead, approvedMessage: string) {
@@ -268,6 +275,172 @@ async function assertAuthenticatedWyzantPage(page: Page): Promise<void> {
     throw new WyzantAuthenticationError(
       "Wyzant displayed a sign-in form instead of the tutor jobs feed.",
     );
+  }
+}
+
+export interface SettledWyzantPageOptions {
+  assertUrl: (value: string) => void;
+  readySelector: string;
+  timeoutMs?: number;
+  stabilityMs?: number;
+}
+
+export async function readSettledWyzantPage<T>(
+  page: Page,
+  options: SettledWyzantPageOptions,
+  read: () => Promise<T>,
+): Promise<T> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await waitForSettledWyzantPage(page, options);
+    try {
+      const result = await read();
+      options.assertUrl(page.url());
+      return result;
+    } catch (error) {
+      if (
+        attempt === 0 &&
+        !page.isClosed() &&
+        isTransientWyzantNavigationError(error)
+      ) {
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error("Wyzant page could not be read after navigation settled.");
+}
+
+export async function readWyzantRoute<T>(
+  context: BrowserContext,
+  initialUrl: string,
+  options: SettledWyzantPageOptions,
+  read: (page: Page) => Promise<T>,
+): Promise<T> {
+  let targetUrl = initialUrl;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let page: Page | undefined;
+    try {
+      return await withWyzantRouteTimeout(
+        (async () => {
+          page = await context.newPage();
+          await page.goto(targetUrl, {
+            waitUntil: "domcontentloaded",
+            timeout: 45_000,
+          });
+          return readSettledWyzantPage(page, options, () => read(page!));
+        })(),
+        (options.timeoutMs ?? 20_000) + 5_000,
+      );
+    } catch (error) {
+      if (attempt === 0 && isTransientWyzantNavigationError(error)) {
+        const landedUrl = page?.url() ?? initialUrl;
+        try {
+          options.assertUrl(landedUrl);
+          targetUrl = landedUrl;
+        } catch {
+          targetUrl = initialUrl;
+        }
+        continue;
+      }
+      throw error;
+    } finally {
+      void page?.close().catch(() => undefined);
+    }
+  }
+  throw new Error("Wyzant route could not be read after replacing its page.");
+}
+
+export async function withWyzantBrowserRetry<T>(
+  openBrowser: () => Promise<Browser>,
+  read: (browser: Browser) => Promise<T>,
+): Promise<T> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const browser = await openBrowser();
+    try {
+      return await read(browser);
+    } catch (error) {
+      if (attempt === 0 && isTransientWyzantNavigationError(error)) continue;
+      throw error;
+    } finally {
+      await browser.close().catch(() => undefined);
+    }
+  }
+  throw new Error("Wyzant browser session could not be replaced.");
+}
+
+async function waitForSettledWyzantPage(
+  page: Page,
+  options: SettledWyzantPageOptions,
+): Promise<void> {
+  const timeoutMs = options.timeoutMs ?? 20_000;
+  const stabilityMs = options.stabilityMs ?? 500;
+  const deadline = Date.now() + timeoutMs;
+  let stableUrl = "";
+  let stableSince = 0;
+
+  while (Date.now() < deadline) {
+    const currentUrl = page.url();
+    options.assertUrl(currentUrl);
+    let ready = false;
+    try {
+      ready = (await page.locator(options.readySelector).count()) > 0;
+    } catch (error) {
+      if (!isTransientWyzantNavigationError(error)) throw error;
+    }
+
+    if (ready) {
+      if (currentUrl !== stableUrl) {
+        stableUrl = currentUrl;
+        stableSince = Date.now();
+      } else if (Date.now() - stableSince >= stabilityMs) {
+        options.assertUrl(page.url());
+        return;
+      }
+    } else {
+      stableUrl = "";
+      stableSince = 0;
+    }
+    try {
+      await page.waitForTimeout(100);
+    } catch (error) {
+      if (!isTransientWyzantNavigationError(error)) throw error;
+      if (page.isClosed()) throw error;
+    }
+  }
+  throw new Error(
+    `Wyzant page did not settle on ${options.readySelector} within ${timeoutMs}ms.`,
+  );
+}
+
+export function isTransientWyzantNavigationError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    /(?:execution context was destroyed|target page, context or browser has been closed|frame was detached|navigation|wyzant route read timed out)/i.test(
+      error.message,
+    )
+  );
+}
+
+async function withWyzantRouteTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(`Wyzant route read timed out after ${timeoutMs}ms.`),
+            ),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 

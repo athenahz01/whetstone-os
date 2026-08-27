@@ -37,7 +37,7 @@ jobs:
         env:
           WYZANT_STORAGE_STATE_JSON: ${{ secrets.WYZANT_STORAGE_STATE_JSON }}
           WYZANT_FEED_URL: ${{ vars.WYZANT_FEED_URL }}
-          WYZANT_MESSAGES_URL: https://highered.wyzant.com/tutor/messaging
+          WYZANT_MESSAGES_URL: ${{ vars.WYZANT_MESSAGES_URL }}
           WYZANT_TARGET_SUBJECTS: College Counseling|English|Essay Writing|SAT Reading
           WYZANT_TARGET_LOCATIONS: Manhattan|New York, NY
           WYZANT_INCLUDE_ONLINE_JOBS: "true"

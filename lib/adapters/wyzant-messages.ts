@@ -9,7 +9,9 @@ import { stableLeadId } from "../core/stable-id";
 import type { ChannelAdapter, Lead } from "../core/types";
 import {
   officialWyzantUrl,
+  readWyzantRoute,
   resolveWyzantStorageState,
+  withWyzantBrowserRetry,
   WyzantAuthenticationError,
 } from "./wyzant";
 
@@ -108,34 +110,38 @@ export async function readOperatorWyzantMessagesInbox(
   input: InboxReaderInput,
 ): Promise<WyzantMessageSnapshot[]> {
   assertAuthenticatedWyzantMessagesUrl(input.inboxUrl);
-  const browser = await (input.browserFactory
-    ? input.browserFactory()
-    : chromium.launch({ headless: input.headless }));
-  let context: BrowserContext | undefined;
-  try {
-    context = await browser.newContext({
-      storageState: input.storageState,
-      viewport: { width: 390, height: 844 },
-    });
-    const page = await context.newPage();
-    await page.goto(input.inboxUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: 45_000,
-    });
-    assertAuthenticatedWyzantMessagesUrl(page.url());
-    if ((await page.locator('input[type="password"]').count()) > 0) {
-      throw new WyzantAuthenticationError(
-        "Wyzant displayed a sign-in form instead of the Messages inbox.",
-      );
-    }
-    await page
-      .locator("#messaging-app .inbox-main")
-      .waitFor({ state: "attached", timeout: 20_000 });
-    return extractMessages(page);
-  } finally {
-    await context?.close().catch(() => undefined);
-    await browser.close().catch(() => undefined);
-  }
+  return withWyzantBrowserRetry(
+    () =>
+      input.browserFactory
+        ? input.browserFactory()
+        : chromium.launch({ headless: input.headless }),
+    async (browser) => {
+      const context: BrowserContext = await browser.newContext({
+        storageState: input.storageState,
+        viewport: { width: 390, height: 844 },
+      });
+      try {
+        return await readWyzantRoute(
+          context,
+          input.inboxUrl,
+          {
+            assertUrl: assertAuthenticatedWyzantMessagesUrl,
+            readySelector: "body",
+          },
+          async (page) => {
+            if ((await page.locator('input[type="password"]').count()) > 0) {
+              throw new WyzantAuthenticationError(
+                "Wyzant displayed a sign-in form instead of the Messages inbox.",
+              );
+            }
+            return extractMessages(page);
+          },
+        );
+      } finally {
+        await context.close().catch(() => undefined);
+      }
+    },
+  );
 }
 
 async function extractMessages(page: Page): Promise<WyzantMessageSnapshot[]> {

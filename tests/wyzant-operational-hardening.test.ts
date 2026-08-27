@@ -1,11 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_WYZANT_MESSAGES_URL } from "../lib/adapters/wyzant-messages";
+import { chromium, type Browser } from "playwright";
+import {
+  assertAuthenticatedWyzantMessagesUrl,
+  DEFAULT_WYZANT_MESSAGES_URL,
+  readOperatorWyzantMessagesInbox,
+} from "../lib/adapters/wyzant-messages";
 import {
   configuredWyzantLessonTypes,
   collectConfiguredWyzantJobs,
   dedupeWyzantJobs,
   DEFAULT_WYZANT_FEED_URL,
   filterWyzantJobs,
+  readSettledWyzantPage,
+  readWyzantRoute,
+  withWyzantBrowserRetry,
   wyzantFeedUrlForLessonType,
   type WyzantJobSnapshot,
 } from "../lib/adapters/wyzant";
@@ -102,5 +110,190 @@ describe("Wyzant operational hardening", () => {
     );
     expect(readView).toHaveBeenCalledTimes(2);
     expect(jobs.map((job) => job.nativeId)).toEqual(["job-1"]);
+  });
+
+  it("retries an evaluation interrupted by a client-side redirect to another official subdomain", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.route(
+        "https://www.wyzant.com/tutor/messaging",
+        async (route) =>
+          route.fulfill({
+            contentType: "text/html",
+            body: `<div id="messaging-app"><div class="inbox-main"></div></div>
+              <script>
+                setTimeout(() => {
+                  location.href = "https://highered.wyzant.com/tutor/messaging";
+                }, 350);
+              </script>`,
+          }),
+      );
+      await page.route(
+        "https://highered.wyzant.com/tutor/messaging",
+        async (route) =>
+          route.fulfill({
+            contentType: "text/html",
+            body: '<div id="messaging-app"><div class="inbox-main"></div></div>',
+          }),
+      );
+      await page.goto("https://www.wyzant.com/tutor/messaging", {
+        waitUntil: "domcontentloaded",
+      });
+      const evaluate = vi.fn(async () =>
+        page.evaluate(
+          () =>
+            new Promise<string>((resolve) => {
+              setTimeout(() => resolve(location.href), 500);
+            }),
+        ),
+      );
+
+      await expect(
+        readSettledWyzantPage(
+          page,
+          {
+            assertUrl: assertAuthenticatedWyzantMessagesUrl,
+            readySelector: "#messaging-app .inbox-main",
+            stabilityMs: 200,
+          },
+          evaluate,
+        ),
+      ).resolves.toBe("https://highered.wyzant.com/tutor/messaging");
+      expect(evaluate).toHaveBeenCalledTimes(2);
+      expect(page.url()).toBe("https://highered.wyzant.com/tutor/messaging");
+      await page.close();
+    } finally {
+      await browser.close();
+    }
+  }, 15_000);
+
+  it("lets the Messages adapter finish after its old page redirects during extraction", async () => {
+    const actualBrowser = await chromium.launch({ headless: true });
+    const browserFactory = vi.fn(async () => {
+      return {
+        newContext: async (options: Parameters<Browser["newContext"]>[0]) => {
+          const context = await actualBrowser.newContext(options);
+          await context.route(
+            "https://www.wyzant.com/tutor/messaging",
+            async (route) =>
+              route.fulfill({
+                contentType: "text/html",
+                body: `<div id="messaging-app"><div class="inbox-main">
+                    <div class="conversation-summary-wrap"><span class="username">Safe fixture</span></div>
+                  </div></div>
+                  <script>
+                    const summary = document.querySelector(".conversation-summary-wrap");
+                    summary.__vue__ = {
+                      userId: "operator",
+                      isUnread: true,
+                      displayName: "Safe fixture",
+                      thread: {
+                        sid: "thread-fixture",
+                        attributes: {},
+                        _internalState: { lastMessage: { index: 0 } },
+                        _messagesList: {
+                          get: async () => {
+                            await new Promise((resolve) => setTimeout(resolve, 500));
+                            return { data: { author: "student", sid: "message-fixture", text: "fixture", timestamp: "2026-08-27T12:00:00.000Z" } };
+                          }
+                        }
+                      }
+                    };
+                    setTimeout(() => {
+                      location.href = "https://highered.wyzant.com/tutor/messaging";
+                    }, 650);
+                  </script>`,
+              }),
+          );
+          await context.route(
+            "https://highered.wyzant.com/tutor/messaging",
+            async (route) =>
+              route.fulfill({
+                contentType: "text/html",
+                body: "<main>Final Messages route</main>",
+              }),
+          );
+          return context;
+        },
+        close: async () => actualBrowser.close(),
+      } as unknown as Browser;
+    });
+
+    await expect(
+      readOperatorWyzantMessagesInbox({
+        storageState: { cookies: [], origins: [] },
+        inboxUrl: "https://www.wyzant.com/tutor/messaging",
+        headless: true,
+        browserFactory,
+      }),
+    ).resolves.toEqual([]);
+    expect(browserFactory).toHaveBeenCalledOnce();
+  });
+
+  it("replaces a page target that closes during a Wyzant read", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const context = await browser.newContext();
+      await context.route(
+        "https://highered.wyzant.com/tutor/messaging",
+        async (route) =>
+          route.fulfill({
+            contentType: "text/html",
+            body: '<div id="messaging-app"><div class="inbox-main"></div></div>',
+          }),
+      );
+      const read = vi.fn(
+        async (page: Awaited<ReturnType<typeof context.newPage>>) => {
+          if (read.mock.calls.length === 1) {
+            await page.close();
+          }
+          return page.evaluate(() => location.href);
+        },
+      );
+
+      await expect(
+        readWyzantRoute(
+          context,
+          "https://highered.wyzant.com/tutor/messaging",
+          {
+            assertUrl: assertAuthenticatedWyzantMessagesUrl,
+            readySelector: "#messaging-app .inbox-main",
+            stabilityMs: 0,
+          },
+          read,
+        ),
+      ).resolves.toBe("https://highered.wyzant.com/tutor/messaging");
+      expect(read).toHaveBeenCalledTimes(2);
+      await context.close();
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("replaces the browser session when a redirect closes its context", async () => {
+    const closeFirst = vi.fn(async () => undefined);
+    const closeSecond = vi.fn(async () => undefined);
+    const browsers = [
+      { close: closeFirst } as unknown as Browser,
+      { close: closeSecond } as unknown as Browser,
+    ];
+    const openBrowser = vi.fn(async () => browsers.shift()!);
+    const read = vi
+      .fn<(browser: Browser) => Promise<string>>()
+      .mockRejectedValueOnce(
+        new Error(
+          "browserContext.newPage: Target page, context or browser has been closed",
+        ),
+      )
+      .mockResolvedValueOnce("settled");
+
+    await expect(withWyzantBrowserRetry(openBrowser, read)).resolves.toBe(
+      "settled",
+    );
+    expect(openBrowser).toHaveBeenCalledTimes(2);
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(closeFirst).toHaveBeenCalledOnce();
+    expect(closeSecond).toHaveBeenCalledOnce();
   });
 });

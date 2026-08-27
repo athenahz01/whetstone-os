@@ -17,6 +17,11 @@ describe("scheduled Wyzant poll reliability", () => {
     expect(workflow).not.toContain("playwright install");
     expect(workflow).toContain("sleep $((RANDOM % 121))");
     expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("WYZANT_FEED_URL: ${{ vars.WYZANT_FEED_URL }}");
+    expect(workflow).toContain(
+      "WYZANT_MESSAGES_URL: ${{ vars.WYZANT_MESSAGES_URL }}",
+    );
+    expect(workflow).not.toMatch(/WYZANT_(?:FEED|MESSAGES)_URL:\s*https:\/\//);
     expect(workflow).toContain(
       "WYZANT_TARGET_SUBJECTS: College Counseling|English|Essay Writing|SAT Reading",
     );
