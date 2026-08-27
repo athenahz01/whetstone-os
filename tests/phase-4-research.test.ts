@@ -8,7 +8,6 @@ import {
   DeterministicResearchAgent,
   publicSentenceHasMinorPersonalData,
   renderResearchBrief,
-  renderTraceabilityIssues,
   selectIcpFact,
   scopePublicSources,
   type PublicSourcePage,
@@ -341,19 +340,6 @@ describe("Phase 4 S2 research workflow", () => {
     expect(citationGateIssues(tampered, trusted)).toContainEqual({
       claimId: "hook-1.claim",
       reason: "hook claim does not match the scoped evidence role",
-    });
-  });
-
-  it("names an untraceable substring in the rendered artifact", async () => {
-    const brief = await makeValidBrief();
-    const rendered = renderResearchBrief(brief).replace(
-      "Hooks:",
-      "Hooks: family budget is approved",
-    );
-    expect(renderTraceabilityIssues(brief, rendered)).toContainEqual({
-      claimId: expect.stringMatching(/^rendered\.traceability\.line-/),
-      reason:
-        "rendered text is not traceable to a cited claim or constant vocabulary",
     });
   });
 

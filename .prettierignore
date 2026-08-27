@@ -7,3 +7,6 @@ whetstone-agentic-ops-build-plan.md
 docs/*.md
 !docs/DEPLOYMENT.md
 scripts/docs-lint.mjs
+
+# Auditor scratch notes, not the executor's to reformat
+.audit/

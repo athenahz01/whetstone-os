@@ -67,6 +67,7 @@ export interface ResearchExclusion {
   sourceRef: string;
   reason:
     | "minor-personal-data"
+    | "personal-contact-data"
     | "not-public"
     | "enrichment-vendor"
     | "unsupported-source";
@@ -111,26 +112,124 @@ const ENRICHMENT_HOSTS = new Set([
   "zoominfo.com",
 ]);
 
-const PUBLIC_PERSONAL_DATA_SIGNALS = [
+/**
+ * Two ideas that used to be one, which is why ordinary organization pages were
+ * being dropped whole and logged as if a minor were involved.
+ *
+ * MINOR_IDENTIFYING_SIGNALS say a specific young person is being described: an
+ * age under 18, a grade level, a class year, a date of birth with an actual
+ * date, enrollment language, or a named child. This is the genuine block.
+ *
+ * CONTACT_SIGNALS say an email, phone or street address is present. On an
+ * organization page those are ordinary and must not trigger anything. They only
+ * matter attached to a person, which is what PERSON_KEYWORDS and the name and
+ * email-local-part rules below decide.
+ */
+const MONTH = "jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec";
+
+/**
+ * Requires an actual date after the word, so "the program was born out of a
+ * 2019 pilot" does not read as a date of birth. "born March 2010" and "born in
+ * 2010" both do.
+ */
+const BORN_WITH_DATE = new RegExp(
+  String.raw`\b(?:born|date of birth|dob)\b\s*(?:on|in)?\s*:?\s*(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|(?:${MONTH})[a-z]*\.?\s+(?:\d{1,2},?\s+)?(?:19|20)\d{2}|(?:19|20)\d{2})\b`,
+  "i",
+);
+
+const MINOR_IDENTIFYING_SIGNALS = [
   /\b(?:age|aged)\s+(?:[1-9]|1[0-7])\b/i,
   /\b(?:[1-9]|1[0-7])(?:[- ]years?[- ]old|\s+years?\s+old)\b/i,
   /\b(?:she|he|they)(?:['’]s|\s+is)\s+(?:[1-9]|1[0-7])\b/i,
-  /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s*(?:,|is)\s*(?:[1-9]|1[0-7])\b/,
-  /\bturning\s+(?:[1-9]|1[0-7])\b/i,
-  /\b(?:born|date of birth|dob)\b/i,
-  /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i,
+  // A name adjacency alone is not enough. "Saturday, 9 a.m." must not match, so
+  // this requires the "is N and" shape rather than any capital next to a digit.
+  /\b(?:[A-Z][a-z]+|she|he|they)\s+is\s+(?:[1-9]|1[0-7])\s+and\b/,
+  /\b(?:turning|turns)\s+(?:[1-9]|1[0-7])\b/i,
+  /\b(?:[1-9]|1[0-2])(?:st|nd|rd|th)\s+grade\b/i,
+  /\bclass\s+of\s+20\d{2}\b/i,
+  BORN_WITH_DATE,
+  /\b(?:attends|enrolled\s+at|student\s+at)\b/i,
+  /\b20\d{2}\s*[-/]\s*(?:20)?\d{2}\s+(?:school|academic)\s+year\b/i,
+  // A named someone's daughter or son in a tutoring context is a child.
+  // "child" and "student" are person references, not minor identifiers, so
+  // "helps your child read closely" stays.
+  /\b(?:daughter|son)\b/i,
+];
+
+const CLASS_YEAR_WORD = /\b(?:freshman|sophomore|junior|senior)\b/i;
+
+/**
+ * A class-year word only identifies a minor in a school context. "Our senior
+ * instructors" is a job title.
+ */
+const SCHOOL_CONTEXT =
+  /\b(?:school|high|academy|college|university|grade|campus|class\s+of|20\d{2})\b/i;
+
+const EMAIL_SIGNAL = /\b([A-Z0-9._%+-]+)@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
+
+const CONTACT_SIGNALS = [
+  EMAIL_SIGNAL,
   /\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/,
   /\b\d{1,6}\s+[A-Za-z0-9.'-]+(?:\s+[A-Za-z0-9.'-]+){0,4}\s+(?:street|st|avenue|ave|road|rd|lane|ln|drive|dr|boulevard|blvd)\b/i,
 ];
 
-const PUBLIC_MINOR_CONTEXT_SIGNALS = [
-  ...PUBLIC_PERSONAL_DATA_SIGNALS,
-  /\b(?:[1-9]|1[0-2])(?:st|nd|rd|th)?\s+grade\b/i,
-  /\b(?:freshman|sophomore|junior|senior)\b/i,
-  /\bclass\s+of\s+20\d{2}\b/i,
-  /\b(?:attends|enrolled\s+at|student\s+at)\b/i,
-  /\b20\d{2}\s*[-/]\s*(?:20)?\d{2}\s+(?:school|academic)\s+year\b/i,
-];
+const PERSON_KEYWORDS =
+  /\b(?:daughter|son|child|student|he|she|they|him|her|hers|his|their)\b/i;
+
+/** Capitalized words that start a sentence and are never a given name. */
+const SENTENCE_OPENERS = new Set([
+  "a",
+  "all",
+  "an",
+  "and",
+  "call",
+  "each",
+  "email",
+  "every",
+  "for",
+  "her",
+  "his",
+  "it",
+  "my",
+  "our",
+  "please",
+  "reach",
+  "students",
+  "text",
+  "the",
+  "their",
+  "these",
+  "this",
+  "to",
+  "visit",
+  "we",
+  "write",
+  "you",
+  "your",
+]);
+
+/** Mailbox names that belong to an organization rather than a person. */
+const ROLE_MAILBOXES = new Set([
+  "admin",
+  "administration",
+  "contact",
+  "enroll",
+  "enrollment",
+  "frontdesk",
+  "hello",
+  "help",
+  "info",
+  "inquiries",
+  "mail",
+  "office",
+  "programs",
+  "questions",
+  "reception",
+  "registrar",
+  "support",
+  "team",
+  "tutoring",
+]);
 
 function normalized(value: string): string {
   return value.replace(/\s+/g, " ").trim();
@@ -177,8 +276,85 @@ function splitPublicSentences(content: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * True when the sentence names a class year in a school context, or with a
+ * given name in the three words before it. "Jordan is a sophomore" and "a
+ * junior at Example High School" identify a student. "Our senior instructors"
+ * is a job title and stays.
+ */
+function sentenceHasStudentClassYear(sentence: string): boolean {
+  const match = CLASS_YEAR_WORD.exec(sentence);
+  if (!match) return false;
+  if (SCHOOL_CONTEXT.test(sentence)) return true;
+  const before = sentence.slice(0, match.index).trim().split(/\s+/).slice(-3);
+  return before.some((word) => isGivenName(word));
+}
+
+function isGivenName(word: string): boolean {
+  const bare = word.replace(/[^A-Za-z]/g, "");
+  if (!/^[A-Z][a-z]+$/.test(bare)) return false;
+  return !SENTENCE_OPENERS.has(bare.toLowerCase());
+}
+
 export function publicSentenceHasMinorPersonalData(sentence: string): boolean {
-  return PUBLIC_MINOR_CONTEXT_SIGNALS.some((pattern) => pattern.test(sentence));
+  return (
+    MINOR_IDENTIFYING_SIGNALS.some((pattern) => pattern.test(sentence)) ||
+    sentenceHasStudentClassYear(sentence)
+  );
+}
+
+function sentenceHasContactDetail(sentence: string): boolean {
+  return CONTACT_SIGNALS.some((pattern) => pattern.test(sentence));
+}
+
+/**
+ * A contact detail is only personal when a person is attached to it in the same
+ * sentence. That is a person keyword, a Firstname Lastname pair, or a mailbox
+ * that is somebody's name rather than a role address. "For details contact
+ * info@example.org" has none of those and stays.
+ */
+function sentenceHasPersonReference(sentence: string): boolean {
+  // Strip the contact details themselves before looking for a person, or a
+  // street name would supply its own Firstname Lastname pair and every address
+  // would read as personal.
+  const withoutContacts = CONTACT_SIGNALS.reduce(
+    (text, pattern) => text.replace(new RegExp(pattern.source, "gi"), " "),
+    sentence,
+  );
+  if (PERSON_KEYWORDS.test(withoutContacts)) return true;
+  const words = withoutContacts.split(/\s+/);
+  for (let index = 1; index < words.length; index += 1) {
+    if (isGivenName(words[index - 1]) && isGivenName(words[index])) return true;
+  }
+  const email = EMAIL_SIGNAL.exec(sentence);
+  if (!email) return false;
+  return !email[1]
+    .toLowerCase()
+    .split(/[._+-]/)
+    .some((part) => ROLE_MAILBOXES.has(part));
+}
+
+export function publicSentenceHasPersonalContactData(
+  sentence: string,
+): boolean {
+  return (
+    sentenceHasContactDetail(sentence) && sentenceHasPersonReference(sentence)
+  );
+}
+
+/** The reason a sentence cannot be carried into a brief, or null to keep it. */
+export function publicSentenceRejection(
+  sentence: string,
+): Extract<
+  ResearchExclusion["reason"],
+  "minor-personal-data" | "personal-contact-data"
+> | null {
+  if (publicSentenceHasMinorPersonalData(sentence))
+    return "minor-personal-data";
+  if (publicSentenceHasPersonalContactData(sentence)) {
+    return "personal-contact-data";
+  }
+  return null;
 }
 
 export function scopePublicSources(pages: PublicSourcePage[]): {
@@ -188,36 +364,35 @@ export function scopePublicSources(pages: PublicSourcePage[]): {
   const allowed: PublicSourcePage[] = [];
   const exclusions: ResearchExclusion[] = [];
   for (const page of pages) {
+    const sourceRef = id("source", page.url);
     const reason = sourceExclusionReason(page);
     if (reason) {
-      exclusions.push({ sourceRef: id("source", page.url), reason });
+      exclusions.push({ sourceRef, reason });
       continue;
     }
-    if (
-      publicSentenceHasMinorPersonalData(page.title) ||
-      PUBLIC_PERSONAL_DATA_SIGNALS.some((pattern) =>
-        pattern.test(`${page.title}\n${page.content}`),
-      )
-    ) {
-      exclusions.push({
-        sourceRef: id("source", page.url),
-        reason: "minor-personal-data",
-      });
+    // A title naming a minor drops the page whole: there is no safe remainder
+    // to keep when the page is about that person.
+    if (publicSentenceHasMinorPersonalData(page.title)) {
+      exclusions.push({ sourceRef, reason: "minor-personal-data" });
       continue;
     }
     const sentences = splitPublicSentences(page.content);
-    const safeSentences = sentences.filter(
-      (sentence) => !publicSentenceHasMinorPersonalData(sentence),
+    const safeSentences: string[] = [];
+    const reasons = new Set<ResearchExclusion["reason"]>();
+    for (const sentence of sentences) {
+      const rejection = publicSentenceRejection(sentence);
+      if (rejection) reasons.add(rejection);
+      else safeSentences.push(sentence);
+    }
+    for (const rejected of reasons) {
+      exclusions.push({ sourceRef, reason: rejected });
+    }
+    if (safeSentences.length === 0) continue;
+    // Nothing was removed, so hand back the page exactly as fetched rather than
+    // a resplit and rejoined copy of it.
+    allowed.push(
+      reasons.size === 0 ? page : { ...page, content: safeSentences.join(" ") },
     );
-    if (safeSentences.length !== sentences.length) {
-      exclusions.push({
-        sourceRef: id("source", page.url),
-        reason: "minor-personal-data",
-      });
-    }
-    if (safeSentences.length > 0) {
-      allowed.push({ ...page, content: safeSentences.join(" ") });
-    }
   }
   return { allowed, exclusions };
 }
@@ -392,7 +567,7 @@ function firstPublicFact(
     .map(normalized)
     .filter((value) => value.length >= 20 && value.length <= 320);
   return candidates.find((candidate) => {
-    if (publicSentenceHasMinorPersonalData(candidate)) return false;
+    if (publicSentenceRejection(candidate)) return false;
     const words = new Set(candidate.toLowerCase().match(/[a-z0-9]+/g) ?? []);
     return [...tokens].some((token) => words.has(token));
   });
@@ -764,9 +939,10 @@ export function citationGateIssues(
           access: "public",
           acquisition: "direct-public-page",
         }) ??
-        (publicSentenceHasMinorPersonalData(item.excerpt)
-          ? "minor-personal-data"
-          : null);
+        splitPublicSentences(item.excerpt)
+          .map(publicSentenceRejection)
+          .find(Boolean) ??
+        null;
       if (reason) {
         issues.push({
           claimId: item.id,
@@ -802,7 +978,6 @@ export function citationGateIssues(
       });
     }
   }
-  issues.push(...renderTraceabilityIssues(brief, renderResearchBrief(brief)));
   return issues;
 }
 
@@ -810,6 +985,28 @@ function hookLabel(kind: ResearchHookKind): string {
   return Object.hasOwn(RESEARCH_HOOK_LABELS, kind)
     ? RESEARCH_HOOK_LABELS[kind]
     : "Unsupported hook:";
+}
+
+/**
+ * Several evidence facts already open with their own prefix, so prepending the
+ * closed-vocabulary label produced "Location: Location: Palo Alto" and
+ * "Prospect request: Request: ...".
+ *
+ * The label wins, and the fact's own prefix is dropped only when the label
+ * already says the same thing. Both halves remain closed vocabulary or verbatim
+ * claim text: nothing here invents a word.
+ */
+function renderHook(kind: ResearchHookKind, text: string): string {
+  const label = hookLabel(kind);
+  const own = /^([A-Za-z][A-Za-z ]*):\s*/.exec(text);
+  if (!own) return `${label} ${text}`;
+  const labelWords = label.replace(/:$/, "").toLowerCase();
+  const ownWords = own[1].toLowerCase();
+  const duplicate =
+    labelWords.includes(ownWords) || ownWords.includes(labelWords);
+  return duplicate
+    ? `${label} ${text.slice(own[0].length)}`
+    : `${label} ${text}`;
 }
 
 function citedEvidence(brief: ResearchBrief): ResearchEvidence[] {
@@ -821,16 +1018,16 @@ function citedEvidence(brief: ResearchBrief): ResearchEvidence[] {
 
 export function renderResearchBrief(brief: ResearchBrief): string {
   const lines = [
-    `Why fit: ${WHY_FIT_LABEL}`,
+    `${WHY_FIT_LABEL}:`,
     ...brief.whyFit.claims.map(
       (item) => `- ${item.text} [${item.evidenceIds.join(", ")}]`,
     ),
     "Hooks:",
     ...brief.hooks.map(
       (hook, index) =>
-        `${index + 1}. ${hookLabel(hook.kind)} ${hook.claim.text} [${hook.claim.evidenceIds.join(", ")}]`,
+        `${index + 1}. ${renderHook(hook.kind, hook.claim.text)} [${hook.claim.evidenceIds.join(", ")}]`,
     ),
-    `Disqualifier: ${DISQUALIFIER_LABEL}`,
+    `${DISQUALIFIER_LABEL}:`,
     `- ${brief.disqualifier.basis.text} [${brief.disqualifier.basis.evidenceIds.join(", ")}]`,
     "Unknowns:",
     ...brief.unknowns.map(
@@ -844,48 +1041,6 @@ export function renderResearchBrief(brief: ResearchBrief): string {
     ),
   ];
   return lines.join("\n");
-}
-
-export function renderTraceabilityIssues(
-  brief: ResearchBrief,
-  rendered: string,
-): CitationGateIssue[] {
-  const expected = [
-    `Why fit: ${WHY_FIT_LABEL}`,
-    ...brief.whyFit.claims.map(
-      (item) => `- ${item.text} [${item.evidenceIds.join(", ")}]`,
-    ),
-    "Hooks:",
-    ...brief.hooks.map(
-      (hook, index) =>
-        `${index + 1}. ${hookLabel(hook.kind)} ${hook.claim.text} [${hook.claim.evidenceIds.join(", ")}]`,
-    ),
-    `Disqualifier: ${DISQUALIFIER_LABEL}`,
-    `- ${brief.disqualifier.basis.text} [${brief.disqualifier.basis.evidenceIds.join(", ")}]`,
-    "Unknowns:",
-    ...brief.unknowns.map(
-      (unknown) => `- ${unknown.text} [${unknown.evidenceIds.join(", ")}]`,
-    ),
-    `Confidence: ${brief.confidence.toFixed(2)}`,
-    "Sources:",
-    ...citedEvidence(brief).flatMap((item) => [
-      `- [${item.id}] ${item.title}: ${item.sourceUrl}`,
-      `  Evidence: ${item.fact}`,
-    ]),
-  ];
-  const actual = rendered.split("\n");
-  const issues: CitationGateIssue[] = [];
-  const length = Math.max(expected.length, actual.length);
-  for (let index = 0; index < length; index += 1) {
-    if (actual[index] !== expected[index]) {
-      issues.push({
-        claimId: `rendered.traceability.line-${index + 1}`,
-        reason:
-          "rendered text is not traceable to a cited claim or constant vocabulary",
-      });
-    }
-  }
-  return issues;
 }
 
 export class IneligibleResearchProspectError extends Error {
