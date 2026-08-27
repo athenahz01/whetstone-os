@@ -233,6 +233,10 @@ $tables = @(
   "system_flags",
   "research_briefs",
   "outreach_drafts",
+  "crm_leads",
+  "crm_field_disputes",
+  "crm_import_rejections",
+  "crm_import_runs",
   "_prisma_migrations"
 )
 foreach ($t in $tables) {

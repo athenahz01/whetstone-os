@@ -310,3 +310,81 @@ model OutreachDraft {
   @@index([orgId, variant, createdAt])
   @@map("outreach_drafts")
 }
+
+model CrmLead {
+  id                     String            @id @default(uuid()) @db.Uuid
+  orgId                  String            @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
+  /// Tab, sheet ID and student name. Two students sharing an ID stay distinct.
+  identity               String            @unique
+  leadRef                String            @map("lead_ref")
+  tab                    String
+  values                 Json
+  statusRaw              String            @default("") @map("status_raw")
+  statusValue            String?           @map("status_value")
+  statusUnmapped         Boolean           @default(false) @map("status_unmapped")
+  referrerSourceRaw      String            @default("") @map("referrer_source_raw")
+  referrerSourceValue    String?           @map("referrer_source_value")
+  referrerSourceUnmapped Boolean           @default(false) @map("referrer_source_unmapped")
+  sources                Json
+  createdAt              DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt              DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  disputes               CrmFieldDispute[]
+
+  @@index([orgId, leadRef])
+  @@index([orgId, statusValue])
+  @@index([orgId, statusUnmapped])
+  @@map("crm_leads")
+}
+
+model CrmFieldDispute {
+  id              String    @id @default(uuid()) @db.Uuid
+  orgId           String    @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
+  identity        String
+  field           String
+  workingValue    String    @map("working_value")
+  workingSource   String    @map("working_source")
+  alternateValue  String    @map("alternate_value")
+  alternateSource String    @map("alternate_source")
+  resolvedValue   String?   @map("resolved_value")
+  resolvedBy      String?   @map("resolved_by")
+  resolvedAt      DateTime? @map("resolved_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  lead            CrmLead   @relation(fields: [identity], references: [identity], onDelete: Cascade)
+
+  @@unique([identity, field])
+  @@index([orgId, resolvedAt])
+  @@map("crm_field_disputes")
+}
+
+model CrmImportRejection {
+  id        String   @id @default(uuid()) @db.Uuid
+  orgId     String   @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
+  source    String
+  tab       String
+  rowNumber Int      @map("row_number")
+  reason    String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([source, tab, rowNumber])
+  @@index([orgId, createdAt])
+  @@map("crm_import_rejections")
+}
+
+model CrmImportRun {
+  id            String   @id @default(uuid()) @db.Uuid
+  orgId         String   @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
+  rowsRead      Int      @map("rows_read")
+  rowsImported  Int      @map("rows_imported")
+  rowsRejected  Int      @map("rows_rejected")
+  merged        Int
+  dashboardOnly Int      @map("dashboard_only")
+  copyOnly      Int      @map("copy_only")
+  disputedCells Int      @map("disputed_cells")
+  unmappedCells Int      @map("unmapped_cells")
+  balanced      Boolean
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([orgId, createdAt])
+  @@map("crm_import_runs")
+}
