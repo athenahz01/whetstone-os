@@ -28,36 +28,42 @@ model Tutor {
 }
 
 model Lead {
-  id                String    @id
-  orgId             String    @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
+  id                String          @id
+  orgId             String          @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
   channel           String
   author            String
   text              String
   subject           String?
   location          String?
   url               String
-  postedAt          DateTime  @map("posted_at") @db.Timestamptz(3)
+  postedAt          DateTime        @map("posted_at") @db.Timestamptz(3)
   raw               Json?
   score             Int
-  status            String    @default("new")
-  firstRespondedAt  DateTime? @map("first_responded_at") @db.Timestamptz(3)
-  alertReservedAt   DateTime? @map("alert_reserved_at") @db.Timestamptz(3)
-  alertedAt         DateTime? @map("alerted_at") @db.Timestamptz(3)
-  prefillApprovedAt DateTime? @map("prefill_approved_at") @db.Timestamptz(3)
-  sentAt            DateTime? @map("sent_at") @db.Timestamptz(3)
-  sentBy            String?   @map("sent_by")
-  tutorId           String?   @map("tutor_id")
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  status            String          @default("new")
+  firstRespondedAt  DateTime?       @map("first_responded_at") @db.Timestamptz(3)
+  alertReservedAt   DateTime?       @map("alert_reserved_at") @db.Timestamptz(3)
+  alertedAt         DateTime?       @map("alerted_at") @db.Timestamptz(3)
+  prefillApprovedAt DateTime?       @map("prefill_approved_at") @db.Timestamptz(3)
+  sentAt            DateTime?       @map("sent_at") @db.Timestamptz(3)
+  sentBy            String?         @map("sent_by")
+  tutorId           String?         @map("tutor_id")
+  /**
+   * Set when a prepared draft reaches ready-for-human-approval. KPI #5.
+   */
+  icpPassReadyAt    DateTime?       @map("icp_pass_ready_at") @db.Timestamptz(3)
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   drafts            Draft[]
+  outreachDrafts    OutreachDraft[]
   researchBriefs    ResearchBrief[]
   outcomes          Outcome[]
-  tutor             Tutor?    @relation(fields: [tutorId], references: [id], onDelete: SetNull)
+  tutor             Tutor?          @relation(fields: [tutorId], references: [id], onDelete: SetNull)
 
   @@index([orgId, channel, postedAt])
   @@index([orgId, tutorId, postedAt])
   @@index([orgId, alertReservedAt, score])
   @@index([orgId, alertedAt, alertReservedAt])
   @@index([orgId, sentAt, postedAt])
+  @@index([orgId, icpPassReadyAt])
   @@map("leads")
 }
 
@@ -150,23 +156,24 @@ model PollHeartbeat {
 }
 
 model Run {
-  id              String        @id @default(uuid()) @db.Uuid
-  orgId           String        @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
-  workflowId      String        @map("workflow_id")
+  id              String         @id @default(uuid()) @db.Uuid
+  orgId           String         @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
+  workflowId      String         @map("workflow_id")
   status          String
   trigger         String
-  startedAt       DateTime      @default(now()) @map("started_at") @db.Timestamptz(3)
-  endedAt         DateTime?     @map("ended_at") @db.Timestamptz(3)
-  humanMinutes    Int           @default(0) @map("human_minutes")
-  baselineMinutes Int           @default(0) @map("baseline_minutes")
-  costUsd         Decimal       @default(0) @map("cost_usd") @db.Decimal(12, 6)
-  humanRescue     Boolean       @default(false) @map("human_rescue")
-  rescueNote      String?       @map("rescue_note")
+  startedAt       DateTime       @default(now()) @map("started_at") @db.Timestamptz(3)
+  endedAt         DateTime?      @map("ended_at") @db.Timestamptz(3)
+  humanMinutes    Int            @default(0) @map("human_minutes")
+  baselineMinutes Int            @default(0) @map("baseline_minutes")
+  costUsd         Decimal        @default(0) @map("cost_usd") @db.Decimal(12, 6)
+  humanRescue     Boolean        @default(false) @map("human_rescue")
+  rescueNote      String?        @map("rescue_note")
   steps           RunStep[]
   approvals       Approval[]
   measurements    Measurement[]
   exceptions      Exception[]
   researchBrief   ResearchBrief?
+  outreachDraft   OutreachDraft?
 
   @@index([orgId, startedAt, workflowId])
   @@index([orgId, startedAt, status, humanRescue])
@@ -274,4 +281,32 @@ model SystemFlag {
 
   @@index([orgId, key])
   @@map("system_flags")
+}
+
+model OutreachDraft {
+  id           String   @id @default(uuid()) @db.Uuid
+  orgId        String   @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
+  runId        String   @unique @map("run_id") @db.Uuid
+  leadId       String   @map("lead_id")
+  tutorId      String   @map("tutor_id")
+  variant      String
+  channel      String
+  opening      String
+  substance    String
+  plan         String
+  disqualifier String
+  ask          String
+  citations    Json
+  contextHash  String   @map("context_hash")
+  renderedBody String   @map("rendered_body")
+  status       String   @default("ready_for_review")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  run          Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  lead         Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, leadId, createdAt])
+  @@index([orgId, status, createdAt])
+  @@index([orgId, variant, createdAt])
+  @@map("outreach_drafts")
 }

@@ -139,10 +139,13 @@ describe("KPI definitions against a hand-computed fixture", () => {
     });
   });
 
-  it("KPI 5 reports prepared-and-ready and says its verdict clause is not built", () => {
-    expect(describeQualifiedSalesOutput(4)).toEqual({
+  it("KPI 5 counts prepared-and-ready and reports the leading indicator apart", () => {
+    // Completed in Phase 5. The prospect is marked ready only when a draft has
+    // passed the voice gate, so the verdict clause is now implemented.
+    expect(describeQualifiedSalesOutput(4, 9)).toEqual({
       readyForApproval: 4,
-      verdictClauseImplemented: false,
+      qualifiedNotYetPrepared: 9,
+      verdictClauseImplemented: true,
     });
   });
 

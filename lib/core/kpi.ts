@@ -159,19 +159,30 @@ export function computeWorkflowSuccess(rows: RunOutcomeRow[]): WorkflowSuccess {
 /* KPI #5 - qualified sales output ---------------------------------------- */
 
 export interface QualifiedSalesOutput {
+  /**
+   * The KPI. Prospects with an `icp_pass` verdict that have passed the quality
+   * gate and reached ready-for-human-approval, which means a prepared draft
+   * exists. Completed in Phase 5.
+   */
   readyForApproval: number;
   /**
-   * The `qualify.verdict = pass` clause lands in Phase 3 and the KPI completes
-   * in Phase 5. Until then this number counts prepared-and-ready only, and says
-   * so rather than presenting itself as the finished definition.
+   * The leading indicator, reported separately and never folded into the
+   * number above. A qualified prospect with nothing prepared is not qualified
+   * sales output, and adding it would inflate the KPI with work not done.
    */
-  verdictClauseImplemented: false;
+  qualifiedNotYetPrepared: number;
+  verdictClauseImplemented: boolean;
 }
 
 export function describeQualifiedSalesOutput(
   readyForApproval: number,
+  qualifiedNotYetPrepared = 0,
 ): QualifiedSalesOutput {
-  return { readyForApproval, verdictClauseImplemented: false };
+  return {
+    readyForApproval,
+    qualifiedNotYetPrepared,
+    verdictClauseImplemented: true,
+  };
 }
 
 /* Repository - one indexed read per KPI ---------------------------------- */
@@ -232,15 +243,32 @@ export class KpiRepository {
     return computeWorkflowSuccess(rows);
   }
 
-  /** Index: leads(org_id, channel, posted_at) with drafts(org_id, lead_id). */
+  /**
+   * Index: leads(org_id, icp_pass_ready_at).
+   *
+   * The marker is written by the same transaction that saves a draft, so the
+   * KPI reads one indexed column rather than reconstructing the condition from
+   * a JSON verdict and a relation at report time.
+   */
   async qualifiedSalesOutput(window: KpiWindow): Promise<QualifiedSalesOutput> {
     const readyForApproval = await this.client.lead.count({
       where: {
         orgId: this.orgId,
-        createdAt: { gte: window.from, lt: window.to },
-        drafts: { some: {} },
+        icpPassReadyAt: { gte: window.from, lt: window.to },
       },
     });
     return describeQualifiedSalesOutput(readyForApproval);
+  }
+
+  /** The leading indicator. Reported beside KPI #5, never inside it. */
+  async qualifiedNotYetPrepared(window: KpiWindow): Promise<number> {
+    return this.client.lead.count({
+      where: {
+        orgId: this.orgId,
+        createdAt: { gte: window.from, lt: window.to },
+        icpPassReadyAt: null,
+        outreachDrafts: { none: {} },
+      },
+    });
   }
 }
