@@ -1,11 +1,12 @@
 import { BatchAdapter } from "../../../lib/adapters/batch";
+import { parseAdapterExceptions } from "../../../lib/core/adapter-exceptions";
 import { prisma } from "../../../lib/core/db";
 import {
   recordPollHeartbeat,
   WYZANT_POLL_HEARTBEAT,
 } from "../../../lib/core/heartbeat";
 import { runProspecting } from "../../../lib/core/scheduler";
-import type { Lead } from "../../../lib/core/types";
+import type { AdapterException, Lead } from "../../../lib/core/types";
 import { secretMatches } from "../../../lib/http/secret";
 
 export const runtime = "nodejs";
@@ -29,8 +30,17 @@ export async function POST(request: Request) {
   if (!isLeadBatch(body)) {
     return Response.json({ error: "Invalid lead batch" }, { status: 400 });
   }
+  // Rejected rather than dropped. Silently discarding the observability the
+  // runner sent is how the exception channel came to be missing at all.
+  const exceptions = parseAdapterExceptions(body.exceptions);
+  if (exceptions === null) {
+    return Response.json(
+      { error: "Invalid adapter exceptions" },
+      { status: 400 },
+    );
+  }
   const prospecting = await runProspecting({
-    adapters: [new BatchAdapter(body.leads)],
+    adapters: [new BatchAdapter(body.leads, exceptions ?? [])],
     trigger: "github-actions-ingest",
   });
   if (!prospecting.qualification.started) {
@@ -72,12 +82,14 @@ export async function POST(request: Request) {
     runId: guarded.run.runId,
     status: guarded.run.status,
     ...result,
+    exceptionsRecorded: exceptions?.length ?? 0,
   });
 }
 
 interface IngestBatch {
   leads: Lead[];
   heartbeat?: { source: typeof WYZANT_POLL_HEARTBEAT; ranAt: string };
+  exceptions?: AdapterException[];
 }
 
 function isLeadBatch(value: unknown): value is IngestBatch {
