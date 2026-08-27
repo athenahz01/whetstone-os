@@ -2,7 +2,8 @@ import { chromium } from "playwright";
 import {
   assertAuthenticatedWyzantFeedUrl,
   DEFAULT_WYZANT_FEED_URL,
-  extractJobs,
+  extractCompleteWyzantBoard,
+  filterWyzantJobs,
   parseWyzantPostedAt,
   resolveWyzantStorageState,
 } from "../lib/adapters/wyzant";
@@ -24,10 +25,27 @@ try {
   }
   const diagnosedAt = Date.now();
   const failures: Array<{ nativeId: string; reason: string }> = [];
-  const jobs = await extractJobs(page, {
+  const board = await extractCompleteWyzantBoard(page, {
     now: diagnosedAt,
     onMalformedJob: (failure) => failures.push(failure),
   });
+  const jobs = board.jobs;
+  const rejectedSubjectLabels = new Set<string>();
+  filterWyzantJobs(
+    jobs,
+    {
+      targetSubjects: split(
+        process.env.WYZANT_TARGET_SUBJECTS,
+        "College Counseling|English|Essay Writing|SAT Reading",
+      ),
+      targetLocations: split(
+        process.env.WYZANT_TARGET_LOCATIONS,
+        "Manhattan|New York, NY",
+      ),
+      includeOnlineJobs: process.env.WYZANT_INCLUDE_ONLINE_JOBS !== "false",
+    },
+    (subject) => rejectedSubjectLabels.add(subject),
+  );
   const visibleCards = await page.locator("div.academy-card").evaluateAll(
     (cards, baseUrl) =>
       cards.map((card) => {
@@ -88,12 +106,10 @@ try {
     authenticatedFeed: true,
     populated: jobs.length > 0,
     jobs: jobs.length,
-    boardCountText:
-      (await page
-        .locator("span.text-bold")
-        .first()
-        .textContent()
-        .catch(() => null)) ?? "unavailable",
+    boardExpectedCount: board.expectedCount ?? "unavailable",
+    extractedDistinctCards: board.extractedCount,
+    inventoryComplete: board.complete,
+    rejectedSubjectLabels: [...rejectedSubjectLabels].sort(),
     fieldCoverage: Object.fromEntries(
       fields.map((field) => [
         field,
@@ -111,4 +127,11 @@ try {
   await context.close();
 } finally {
   await browser.close();
+}
+
+function split(value: string | undefined, fallback: string): string[] {
+  return (value || fallback)
+    .split("|")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }

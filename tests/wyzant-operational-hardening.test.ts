@@ -10,10 +10,12 @@ import {
   collectConfiguredWyzantJobs,
   dedupeWyzantJobs,
   DEFAULT_WYZANT_FEED_URL,
+  extractCompleteWyzantBoard,
   filterWyzantJobs,
   readSettledWyzantPage,
   readWyzantRoute,
   withWyzantBrowserRetry,
+  WyzantAdapter,
   wyzantFeedUrlForLessonType,
   type WyzantJobSnapshot,
 } from "../lib/adapters/wyzant";
@@ -28,6 +30,22 @@ const baseJob: WyzantJobSnapshot = {
   postedAt: "2026-08-27T12:00:00.000Z",
   lessonType: "in_person",
 };
+
+function boardHtml(subjects: string[], expectedCount = subjects.length) {
+  const cards = subjects
+    .map(
+      (subject, index) => `
+        <div class="academy-card" data-job-id="job-${index}">
+          <p class="text-semibold spc-zero-n spc-tiny-s">Fixture learner ${index}</p>
+          <h3><a class="job-details-link" href="/tutor/jobs/job-${index}">${subject}</a></h3>
+          <span class="location">New York, NY</span>
+          <p class="spc-zero-s job-description">Fixture description ${index}</p>
+          <div class="pull-right"><span class="text-semibold text-light">5h</span></div>
+        </div>`,
+    )
+    .join("");
+  return `<div class="jobs-tutor-header"><h2 class="light-header"><span class="text-bold">${expectedCount}</span> jobs</h2></div><div id="jobs-list">${cards}</div>`;
+}
 
 const scope = {
   targetSubjects: [
@@ -110,6 +128,191 @@ describe("Wyzant operational hardening", () => {
     );
     expect(readView).toHaveBeenCalledTimes(2);
     expect(jobs.map((job) => job.nativeId)).toEqual(["job-1"]);
+  });
+
+  it("follows board pagination until the extracted distinct-card count matches the board total", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      const firstPageSubjects = Array.from({ length: 10 }, () => "SAT Reading");
+      const secondPageSubjects = Array.from({ length: 7 }, () => "SAT Reading");
+      await page.route("https://highered.wyzant.com/tutor/jobs**", (route) => {
+        const requestUrl = new URL(route.request().url());
+        const pageNumber = requestUrl.searchParams.get("page");
+        const html = boardHtml(
+          pageNumber === "2" ? secondPageSubjects : firstPageSubjects,
+          17,
+        ).replaceAll(
+          /job-(\d+)/g,
+          (_match, index: string) =>
+            `job-${Number(index) + (pageNumber === "2" ? 10 : 0)}`,
+        );
+        return route.fulfill({
+          contentType: "text/html",
+          body:
+            pageNumber === "2"
+              ? html
+              : `${html}<ul class="pagination"><li class="active">1</li><li><a href="?page=2">2</a></li></ul>`,
+        });
+      });
+      await page.goto("https://highered.wyzant.com/tutor/jobs");
+
+      const result = await extractCompleteWyzantBoard(page, {
+        lessonType: "online",
+      });
+
+      expect(result.complete).toBe(true);
+      expect(result.expectedCount).toBe(17);
+      expect(result.extractedCount).toBe(17);
+      expect(result.jobs).toHaveLength(17);
+      expect(page.url()).toBe("https://highered.wyzant.com/tutor/jobs?page=2");
+      await page.close();
+    } finally {
+      await browser.close();
+    }
+  }, 15_000);
+
+  it("treats an explicitly empty jobs list as a reconciled zero without waiting for a missing header", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent('<div id="jobs-list"></div>');
+
+      await expect(extractCompleteWyzantBoard(page)).resolves.toEqual({
+        jobs: [],
+        expectedCount: 0,
+        extractedCount: 0,
+        complete: true,
+      });
+      await page.close();
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("records both board and extracted counts when pagination cannot reconcile inventory", async () => {
+    const actualBrowser = await chromium.launch({ headless: true });
+    const browserFactory = vi.fn(async () => {
+      return {
+        newContext: async (options: Parameters<Browser["newContext"]>[0]) => {
+          const context = await actualBrowser.newContext(options);
+          await context.route(
+            "https://highered.wyzant.com/tutor/jobs**",
+            (route) =>
+              route.fulfill({
+                contentType: "text/html",
+                body: boardHtml(
+                  Array.from({ length: 10 }, () => "SAT Reading"),
+                  17,
+                ),
+              }),
+          );
+          return context;
+        },
+        close: async () => actualBrowser.close(),
+      } as unknown as Browser;
+    });
+    const adapter = new WyzantAdapter({
+      storageState: { cookies: [], origins: [] },
+      feedUrl: DEFAULT_WYZANT_FEED_URL,
+      targetSubjects: scope.targetSubjects,
+      targetLocations: scope.targetLocations,
+      includeOnlineJobs: false,
+      headless: true,
+      browserFactory,
+    });
+
+    await expect(adapter.poll()).resolves.toHaveLength(10);
+    expect(adapter.drainExceptions()).toContainEqual({
+      kind: "WyzantBoardInventoryMismatch",
+      severity: "critical",
+      message:
+        "in_person view: Wyzant board reported 17 jobs but 10 distinct cards were extracted.",
+    });
+  });
+
+  it("records distinct rejected Wyzant subject labels without guessing mappings or logging card content", async () => {
+    const rejectedSubjects = vi.fn();
+    const subjects = [
+      "Reading",
+      "Writing",
+      "College Essays",
+      "ACT English",
+      "Reading",
+    ];
+    const jobs = await collectConfiguredWyzantJobs(
+      { ...scope, feedUrl: DEFAULT_WYZANT_FEED_URL },
+      async (_url, lessonType) =>
+        subjects.map((subject, index) => ({
+          ...baseJob,
+          nativeId: `${lessonType}-${index}`,
+          author: "Private fixture author",
+          text: "Private fixture message",
+          subject,
+          lessonType,
+        })),
+      { onRejectedSubjects: rejectedSubjects },
+    );
+
+    expect(jobs).toEqual([]);
+    expect(rejectedSubjects).toHaveBeenCalledOnce();
+    expect(rejectedSubjects).toHaveBeenCalledWith([
+      "ACT English",
+      "College Essays",
+      "Reading",
+      "Writing",
+    ]);
+    expect(JSON.stringify(rejectedSubjects.mock.calls)).not.toContain(
+      "Private fixture",
+    );
+  });
+
+  it("drains one label-only exception for subjects rejected during a poll", async () => {
+    const actualBrowser = await chromium.launch({ headless: true });
+    const browserFactory = vi.fn(async () => {
+      return {
+        newContext: async (options: Parameters<Browser["newContext"]>[0]) => {
+          const context = await actualBrowser.newContext(options);
+          await context.route(
+            "https://highered.wyzant.com/tutor/jobs**",
+            (route) =>
+              route.fulfill({
+                contentType: "text/html",
+                body: boardHtml([
+                  "Reading",
+                  "Writing",
+                  "College Essays",
+                  "ACT English",
+                ]),
+              }),
+          );
+          return context;
+        },
+        close: async () => actualBrowser.close(),
+      } as unknown as Browser;
+    });
+    const adapter = new WyzantAdapter({
+      storageState: { cookies: [], origins: [] },
+      feedUrl: DEFAULT_WYZANT_FEED_URL,
+      targetSubjects: scope.targetSubjects,
+      targetLocations: scope.targetLocations,
+      includeOnlineJobs: false,
+      headless: true,
+      browserFactory,
+    });
+
+    await expect(adapter.poll()).resolves.toEqual([]);
+    const exceptions = adapter.drainExceptions();
+    expect(exceptions).toEqual([
+      {
+        kind: "WyzantSubjectsRejected",
+        severity: "warning",
+        message:
+          "Rejected Wyzant subject labels: ACT English | College Essays | Reading | Writing",
+      },
+    ]);
+    expect(JSON.stringify(exceptions)).not.toContain("Fixture learner");
+    expect(JSON.stringify(exceptions)).not.toContain("Fixture description");
   });
 
   it("retries an evaluation interrupted by a client-side redirect to another official subdomain", async () => {

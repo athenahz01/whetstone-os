@@ -102,6 +102,14 @@ subject and in-person location scope in code, and deduplicates the combined
 inventory by Wyzant native ID. It requests only the In person selection when
 `WYZANT_INCLUDE_ONLINE_JOBS=false`.
 
+Before applying scope, the adapter reads the board's displayed total, follows
+pagination or a load-more control, and reconciles that total against distinct
+cards extracted. A mismatch writes a critical exception naming both counts.
+Subject labels rejected by the exact owner-approved list are written as one
+warning containing distinct labels only. The warning contains no learner name,
+message text or URL. Labels such as `Reading`, `Writing` and `College Essays`
+remain rejected until Cole decides whether they map to an approved subject.
+
 For local read-only selector verification, set `WYZANT_STORAGE_STATE_PATH` to a
 gitignored Playwright state file. `pnpm wyzant:capture-board` saves the current
 board HTML under `playwright/.auth/board.html` by default, and

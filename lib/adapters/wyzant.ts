@@ -63,18 +63,38 @@ export class WyzantAdapter implements ChannelAdapter {
                 },
                 async (page) => {
                   await assertAuthenticatedWyzantPage(page);
-                  return extractJobs(page, {
+                  const board = await extractCompleteWyzantBoard(page, {
                     lessonType,
                     onMalformedJob: ({ nativeId, reason }) => {
-                      this.extractionExceptions.push({
+                      this.recordExtractionException({
                         kind: "WyzantJobMalformed",
                         severity: "warning",
                         message: `${nativeId}: ${reason}`,
                       });
                     },
                   });
+                  if (!board.complete) {
+                    this.recordExtractionException({
+                      kind: "WyzantBoardInventoryMismatch",
+                      severity: "critical",
+                      message:
+                        board.expectedCount === undefined
+                          ? `${lessonType} view: Wyzant board count was unavailable; ${board.extractedCount} distinct cards were extracted.`
+                          : `${lessonType} view: Wyzant board reported ${board.expectedCount} jobs but ${board.extractedCount} distinct cards were extracted.`,
+                    });
+                  }
+                  return board.jobs;
                 },
               ),
+            {
+              onRejectedSubjects: (subjects) => {
+                this.recordExtractionException({
+                  kind: "WyzantSubjectsRejected",
+                  severity: "warning",
+                  message: `Rejected Wyzant subject labels: ${subjects.join(" | ")}`,
+                });
+              },
+            },
           );
         } finally {
           await context.close().catch(() => undefined);
@@ -108,6 +128,18 @@ export class WyzantAdapter implements ChannelAdapter {
     this.extractionExceptions = [];
     return exceptions;
   }
+
+  private recordExtractionException(exception: AdapterException): void {
+    if (
+      !this.extractionExceptions.some(
+        (existing) =>
+          existing.kind === exception.kind &&
+          existing.message === exception.message,
+      )
+    ) {
+      this.extractionExceptions.push(exception);
+    }
+  }
 }
 
 export interface WyzantJobSnapshot {
@@ -130,6 +162,13 @@ export interface ExtractJobsOptions {
   now?: number;
   lessonType?: WyzantLessonType;
   onMalformedJob?: (failure: WyzantExtractionFailure) => void;
+}
+
+export interface WyzantBoardReadResult {
+  jobs: WyzantJobSnapshot[];
+  expectedCount?: number;
+  extractedCount: number;
+  complete: boolean;
 }
 
 export async function extractJobs(
@@ -264,6 +303,116 @@ export async function extractJobs(
     }
   }
   return jobs;
+}
+
+export async function extractCompleteWyzantBoard(
+  page: Page,
+  options: ExtractJobsOptions = {},
+): Promise<WyzantBoardReadResult> {
+  const expectedCount = await readWyzantBoardCount(page);
+  const jobsById = new Map<string, WyzantJobSnapshot>();
+  const maxTransitions = Math.min(50, (expectedCount ?? 1) + 1);
+
+  for (let transition = 0; transition < maxTransitions; transition += 1) {
+    for (const job of await extractJobs(page, options)) {
+      jobsById.set(job.nativeId, job);
+    }
+    if (expectedCount !== undefined && jobsById.size === expectedCount) break;
+
+    const advanced = await advanceWyzantBoard(page);
+    if (!advanced) break;
+    assertAuthenticatedWyzantFeedUrl(page.url());
+  }
+
+  const jobs = [...jobsById.values()];
+  return {
+    jobs,
+    ...(expectedCount === undefined ? {} : { expectedCount }),
+    extractedCount: jobs.length,
+    complete: expectedCount !== undefined && jobs.length === expectedCount,
+  };
+}
+
+export async function readWyzantBoardCount(
+  page: Page,
+): Promise<number | undefined> {
+  const countLocator = page
+    .locator(".jobs-tutor-header h2.light-header span.text-bold")
+    .first();
+  const text =
+    (await countLocator.count()) > 0
+      ? await countLocator.textContent().catch(() => null)
+      : null;
+  const match = text?.replace(/,/g, "").match(/\d+/);
+  if (match) return Number(match[0]);
+
+  const cards = await page.locator("div.academy-card").count();
+  if (cards === 0 && (await page.locator("#jobs-list").count()) > 0) return 0;
+  return undefined;
+}
+
+async function advanceWyzantBoard(page: Page): Promise<boolean> {
+  const beforeUrl = page.url();
+  const beforeSignature = await readWyzantJobSignature(page);
+
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await page.waitForTimeout(750);
+  if ((await readWyzantJobSignature(page)) !== beforeSignature) return true;
+
+  const nextControl = await findWyzantNextControl(page);
+  if (!nextControl) return false;
+  await nextControl.dispatchEvent("click");
+  return page
+    .waitForFunction(
+      ({ previousUrl, previousSignature }) => {
+        const signature = Array.from(
+          document.querySelectorAll<HTMLAnchorElement>(
+            "a[href*='/tutor/jobs/'], a[href*='/tutoring-job/']",
+          ),
+        )
+          .map((link) => link.getAttribute("href") ?? link.href)
+          .join("|");
+        return location.href !== previousUrl || signature !== previousSignature;
+      },
+      { previousUrl: beforeUrl, previousSignature: beforeSignature },
+      { timeout: 5_000 },
+    )
+    .then(() => true)
+    .catch(() => false);
+}
+
+async function findWyzantNextControl(page: Page) {
+  const selectors = [
+    "a[rel='next']",
+    ".pagination li.next:not(.disabled) a",
+    ".pagination li.active + li a",
+    "[class*='pagination'] a[aria-label*='next' i]",
+    "[class*='pagination'] button[aria-label*='next' i]",
+    "a:has-text('Load more')",
+    "button:has-text('Load more')",
+    "a:has-text('Show more')",
+    "button:has-text('Show more')",
+    "a:has-text('Next')",
+    "button:has-text('Next')",
+  ];
+  for (const selector of selectors) {
+    const candidates = page.locator(selector);
+    for (let index = 0; index < (await candidates.count()); index += 1) {
+      const candidate = candidates.nth(index);
+      if ((await candidate.isVisible()) && (await candidate.isEnabled())) {
+        return candidate;
+      }
+    }
+  }
+  return undefined;
+}
+
+async function readWyzantJobSignature(page: Page): Promise<string> {
+  return page
+    .locator("a[href*='/tutor/jobs/'], a[href*='/tutoring-job/']")
+    .evaluateAll((links) =>
+      links.map((link) => link.getAttribute("href") ?? "").join("|"),
+    );
 }
 
 async function assertAuthenticatedWyzantPage(page: Page): Promise<void> {
@@ -459,6 +608,9 @@ export async function collectConfiguredWyzantJobs(
     url: string,
     lessonType: WyzantLessonType,
   ) => Promise<WyzantJobSnapshot[]>,
+  diagnostics: {
+    onRejectedSubjects?: (subjects: string[]) => void;
+  } = {},
 ): Promise<WyzantJobSnapshot[]> {
   const jobs: WyzantJobSnapshot[] = [];
   for (const lessonType of configuredWyzantLessonTypes(
@@ -471,7 +623,14 @@ export async function collectConfiguredWyzantJobs(
       )),
     );
   }
-  return dedupeWyzantJobs(filterWyzantJobs(jobs, options));
+  const rejectedSubjects = new Set<string>();
+  const filtered = filterWyzantJobs(jobs, options, (subject) =>
+    rejectedSubjects.add(subject),
+  );
+  if (rejectedSubjects.size > 0) {
+    diagnostics.onRejectedSubjects?.([...rejectedSubjects].sort());
+  }
+  return dedupeWyzantJobs(filtered);
 }
 
 export function wyzantFeedUrlForLessonType(
@@ -496,11 +655,15 @@ export function filterWyzantJobs(
     WyzantAdapterOptions,
     "targetSubjects" | "targetLocations" | "includeOnlineJobs"
   >,
+  onRejectedSubject?: (subject: string) => void,
 ): WyzantJobSnapshot[] {
   const subjects = options.targetSubjects.map(normalizeScopeValue);
   const locations = options.targetLocations.map(normalizeScopeValue);
   return jobs.filter((job) => {
     if (!job.subject || !subjects.includes(normalizeScopeValue(job.subject))) {
+      if (job.subject?.trim()) {
+        onRejectedSubject?.(job.subject.trim().replace(/\s+/g, " "));
+      }
       return false;
     }
     if (isOnlineWyzantJob(job)) return options.includeOnlineJobs;
