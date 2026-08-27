@@ -1,19 +1,27 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { authenticate, SIGN_OUT_PATH } from "../../lib/auth/sign-in";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 
-export async function requestMagicLink(formData: FormData) {
-  const email = String(formData.get("email") ?? "").trim();
-  if (!email) redirect("/login?error=email");
-  const supabase = await createSupabaseServerClient();
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    options: siteUrl
-      ? { emailRedirectTo: `${siteUrl}/auth/confirm` }
-      : undefined,
+export async function signInWithPassword(formData: FormData) {
+  const outcome = await authenticate({
+    email: String(formData.get("email") ?? ""),
+    password: String(formData.get("password") ?? ""),
+    signIn: async (credentials) => {
+      const supabase = await createSupabaseServerClient();
+      const { error } = await supabase.auth.signInWithPassword(credentials);
+      return { ok: !error };
+    },
   });
-  if (error) redirect("/login?error=send");
-  redirect("/login?sent=1");
+  redirect(outcome.redirectTo);
+}
+
+export async function signOut() {
+  const supabase = await createSupabaseServerClient();
+  // Global scope revokes the refresh token at Supabase, so the session is dead
+  // server side rather than merely absent from this browser. Clearing a cookie
+  // alone would leave a token a client could put back.
+  await supabase.auth.signOut({ scope: "global" });
+  redirect(SIGN_OUT_PATH);
 }

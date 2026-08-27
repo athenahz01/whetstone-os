@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "../../lib/core/db";
 import { WHETSTONE_ORG_ID } from "../../lib/core/organization";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
+import { signOut } from "../login/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,12 @@ export default async function TodayPage() {
   });
   return (
     <main className="shell">
-      <p className="eyebrow">Whetstone OS</p>
+      <div className="row">
+        <p className="eyebrow">Whetstone OS</p>
+        <form action={signOut}>
+          <button type="submit">Sign out</button>
+        </form>
+      </div>
       <h1>Today</h1>
       <p>
         Review each opportunity here. Sending always requires a human action.
