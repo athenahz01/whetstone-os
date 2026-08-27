@@ -329,6 +329,7 @@ model CrmLead {
   createdAt              DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt              DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
   disputes               CrmFieldDispute[]
+  touches                CrmTouch[]
 
   @@index([orgId, leadRef])
   @@index([orgId, statusValue])
@@ -387,4 +388,73 @@ model CrmImportRun {
 
   @@index([orgId, createdAt])
   @@map("crm_import_runs")
+}
+
+model CrmTouch {
+  id           String   @id @default(uuid()) @db.Uuid
+  orgId        String   @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
+  identity     String
+  leadRef      String   @map("lead_ref")
+  /// How this was learned: email, calendar or asserted by a human.
+  basis        String
+  /// Meeting or email. The stall thresholds depend on the difference.
+  kind         String
+  direction    String
+  /// occurred or scheduled. A booked call is not contact that happened.
+  state        String
+  occurredAt   DateTime @map("occurred_at") @db.Timestamptz(3)
+  /// The provider's own id. Never prose, so a name cannot ride in it.
+  sourceRef    String   @map("source_ref")
+  /// A digest of the subject. The subject line itself is never stored.
+  subjectRef   String?  @map("subject_ref")
+  matchedField String?  @map("matched_field")
+  assertedBy   String?  @map("asserted_by")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  lead         CrmLead  @relation(fields: [identity], references: [identity], onDelete: Cascade)
+
+  @@unique([identity, basis, sourceRef])
+  @@index([orgId, identity, occurredAt])
+  @@index([orgId, state, occurredAt])
+  @@index([orgId, kind, occurredAt])
+  @@map("crm_touches")
+}
+
+model CrmTouchUnmatched {
+  id        String   @id @default(uuid()) @db.Uuid
+  orgId     String   @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
+  sourceRef String   @map("source_ref")
+  basis     String
+  /// From a closed list, so a non-match cannot become a place to put prose.
+  reason    String
+  /// How many leads an address reached, when that is why it did not match.
+  candidateLeads Int  @default(0) @map("candidate_leads")
+  scannedAt DateTime  @map("scanned_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([basis, sourceRef, scannedAt])
+  @@index([orgId, scannedAt])
+  @@map("crm_touch_unmatched")
+}
+
+model CrmTouchScan {
+  id             String    @id @default(uuid()) @db.Uuid
+  orgId          String    @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
+  provider       String
+  windowStart    DateTime  @map("window_start") @db.Timestamptz(3)
+  windowEnd      DateTime  @map("window_end") @db.Timestamptz(3)
+  /// completed or failed. Every attempt writes one, so a failed scan and a
+  /// quiet day are never the same absence.
+  status         String
+  failureReason  String?   @map("failure_reason")
+  candidatesRead Int       @map("candidates_read")
+  matched        Int
+  unmatched      Int
+  ambiguous      Int
+  unaddressed    Int
+  balanced       Boolean
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([orgId, provider, createdAt])
+  @@index([orgId, status, createdAt])
+  @@map("crm_touch_scans")
 }

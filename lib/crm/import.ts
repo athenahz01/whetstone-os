@@ -98,6 +98,22 @@ export class UnknownCrmDisputeError extends Error {
  * import that looks successful is the failure mode this phase names first: a
  * silently dropped row fails the phase.
  */
+/**
+ * One lead reference produced more than one record, and the split was not a
+ * declared one.
+ *
+ * Refused rather than written, for the same reason an unbalanced import is:
+ * a half-joined record looks like data and behaves like a bug.
+ */
+export class SplitCrmLeadError extends Error {
+  constructor(readonly leadRefs: string[]) {
+    super(
+      `Refusing to write: ${leadRefs.length} lead reference(s) produced more than one record and were not declared as splits: ${leadRefs.join(", ")}.`,
+    );
+    this.name = "SplitCrmLeadError";
+  }
+}
+
 export async function importCrmSources(
   repository: CrmRepository,
   primary: CrmSourceRow[],
@@ -123,9 +139,27 @@ export async function importCrmSources(
 export async function writeMergeResult(
   repository: CrmRepository,
   result: MergeResult,
+  options: { knownSplitLeadRefs?: string[] } = {},
 ): Promise<void> {
   if (!isBalanced(result.reconciliation) || !result.reconciliation.balanced) {
     throw new UnbalancedCrmImportError(result.reconciliation);
+  }
+
+  // Balance proves nothing was lost. It cannot prove anything was joined
+  // correctly - two rows that should be one lead balance perfectly - so the
+  // split count is checked separately.
+  //
+  // Only `ug_sales::U036` is a legitimate split: two named students genuinely
+  // share that ID. Every other split is a join that failed, and against the
+  // live export there were three of them (U045, U046, U047), each producing one
+  // record with the sales funnel and one with the academic columns. Writing
+  // that would rebuild the fork this phase exists to end.
+  const known = new Set(options.knownSplitLeadRefs ?? ["ug_sales::U036"]);
+  const unexpected = result.reconciliation.splitLeadRefs.filter(
+    (ref) => !known.has(ref),
+  );
+  if (unexpected.length > 0) {
+    throw new SplitCrmLeadError(unexpected);
   }
 
   for (const lead of result.leads) {

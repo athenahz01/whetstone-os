@@ -237,6 +237,9 @@ $tables = @(
   "crm_field_disputes",
   "crm_import_rejections",
   "crm_import_runs",
+  "crm_touches",
+  "crm_touch_unmatched",
+  "crm_touch_scans",
   "_prisma_migrations"
 )
 foreach ($t in $tables) {

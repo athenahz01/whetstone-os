@@ -66,11 +66,32 @@ export const ACADEMIC_FIELDS = [
   "regionSchool",
 ] as const;
 
+/**
+ * The columns touch detection matches against.
+ *
+ * Carried across as ordinary merged fields, so a disagreement between the two
+ * files becomes a dispute like any other and a disputed address is barred from
+ * driving a match. An address nobody has ruled on is not a fact about who a
+ * message was from.
+ *
+ * 52 of 69 UG rows have no student email, so absence here is the common case
+ * and has to read as `unmonitorable` rather than as healthy. 7.5c owns that
+ * label; this list is what it will find missing.
+ */
+export const CONTACT_FIELDS = [
+  "studentEmail",
+  "parent1Email",
+  "parent2Email",
+  "studentPhone",
+  "parent1Phone",
+] as const;
+
 export const MERGED_FIELDS = [
   "studentFirst",
   "studentLast",
   ...FUNNEL_FIELDS,
   ...ACADEMIC_FIELDS,
+  ...CONTACT_FIELDS,
 ] as const;
 
 export type CrmField = (typeof MERGED_FIELDS)[number];
@@ -95,6 +116,11 @@ const COLUMN_TO_FIELD: Record<string, CrmField> = {
   Capstone: "capstone",
   Essays: "essays",
   "Region School": "regionSchool",
+  "S Email": "studentEmail",
+  "P1 Email": "parent1Email",
+  "P2 Email": "parent2Email",
+  "S Phone": "studentPhone",
+  "P1 Phone": "parent1Phone",
 };
 
 export interface CrmDispute {
@@ -140,6 +166,15 @@ export interface CrmReconciliation {
   unmappedCells: number;
   /** True only when imported plus rejected accounts for every row read. */
   balanced: boolean;
+  /**
+   * Leads holding one `leadRef` that were built as two records.
+   *
+   * `balanced` counts source rows, so it can only prove nothing was lost. It
+   * cannot prove anything was joined correctly: two rows that should have been
+   * one lead still balance perfectly. This is the count that notices, and it
+   * must be zero.
+   */
+  splitLeadRefs: string[];
 }
 
 /**
@@ -195,6 +230,44 @@ export function crmIdentity(
     .replace(/::$/, "::");
 }
 
+/** The identity of a row whose student name is blank. */
+function namelessIdentity(tab: CrmTab, leadRef: string): string {
+  return crmIdentity(tab, leadRef, "", "");
+}
+
+/**
+ * Resolves the identity a nameless row should adopt.
+ *
+ * A row with an ID and no student name is not a different student; it is the
+ * same student, recorded by someone who did not fill the name cell. 21 rows in
+ * `!Dashboard` are in exactly that state, and in the live export U045, U046 and
+ * U047 are named in `!Dashboard` and nameless in the copy.
+ *
+ * Keying identity on the name alone split each of those into two leads sharing
+ * one `leadRef` - one carrying the sales funnel, the other carrying the
+ * academic columns. That is the fork this phase exists to end, rebuilt inside
+ * the database, and the reconciliation called it balanced because it counts
+ * rows and every row was accounted for.
+ *
+ * So a nameless row joins the named row for its `leadRef` when there is exactly
+ * one. When there are two or more - `U036`, where Hamza Benyass and Jack Yu
+ * share an ID - there is no non-arbitrary answer, and guessing would fold two
+ * students together. That row is rejected instead, which is the outcome the
+ * "no silently dropped row" rule is for: it leaves as a rejection with a
+ * reason, not as a wrong join.
+ */
+function resolveNamelessIdentity(
+  tab: CrmTab,
+  leadRef: string,
+  namedIdentities: Map<string, string[]>,
+): { identity: string } | { ambiguous: string[] } {
+  const candidates = namedIdentities.get(`${tab}::${leadRef}`) ?? [];
+  if (candidates.length === 1) return { identity: candidates[0]! };
+  if (candidates.length === 0)
+    return { identity: namelessIdentity(tab, leadRef) };
+  return { ambiguous: candidates };
+}
+
 function fieldsFrom(row: CrmSourceRow): Partial<Record<CrmField, string>> {
   const values: Partial<Record<CrmField, string>> = {};
   for (const [column, field] of Object.entries(COLUMN_TO_FIELD)) {
@@ -220,6 +293,29 @@ export function mergeCrmSources(
   const rowsRead = primary.length + secondary.length;
   let rowsImported = 0;
 
+  // First pass: every named row, so a nameless row can find its twin whichever
+  // order the two files arrive in. A single pass made the join depend on row
+  // order, which is not a property of the data.
+  const namedIdentities = new Map<string, string[]>();
+  for (const row of [...primary, ...secondary]) {
+    const leadRef = cell(row, "ID").trim().toUpperCase();
+    if (!leadRef) continue;
+    const name = normalizeName(
+      `${cell(row, "S First")} ${cell(row, "S Last")}`,
+    );
+    if (!name) continue;
+    const key = `${row.tab}::${leadRef}`;
+    const identity = crmIdentity(
+      row.tab,
+      leadRef,
+      cell(row, "S First"),
+      cell(row, "S Last"),
+    );
+    const held = namedIdentities.get(key) ?? [];
+    if (!held.includes(identity)) held.push(identity);
+    namedIdentities.set(key, held);
+  }
+
   const ingest = (row: CrmSourceRow) => {
     const leadRef = cell(row, "ID");
     if (!leadRef) {
@@ -233,7 +329,26 @@ export function mergeCrmSources(
     }
     const first = cell(row, "S First");
     const last = cell(row, "S Last");
-    const identity = crmIdentity(row.tab, leadRef, first, last);
+    let identity: string;
+    if (normalizeName(`${first} ${last}`)) {
+      identity = crmIdentity(row.tab, leadRef, first, last);
+    } else {
+      const resolved = resolveNamelessIdentity(
+        row.tab,
+        leadRef.trim().toUpperCase(),
+        namedIdentities,
+      );
+      if ("ambiguous" in resolved) {
+        rejections.push({
+          source: row.source,
+          tab: row.tab,
+          rowNumber: row.rowNumber,
+          reason: `row has no student name and its ID ${leadRef.trim().toUpperCase()} is shared by ${resolved.ambiguous.length} named students, so it cannot be joined without guessing`,
+        });
+        return;
+      }
+      identity = resolved.identity;
+    }
     const incoming = fieldsFrom(row);
     const existing = byIdentity.get(identity);
     rowsImported += 1;
@@ -320,6 +435,28 @@ export function mergeCrmSources(
       // Every row read left as an import or as a rejection. If this is false
       // the import lost something, and the caller must refuse to proceed.
       balanced: isBalanced({ rowsRead, rowsImported, rowsRejected }),
+      splitLeadRefs: splitLeadRefs(leads),
     },
   };
+}
+
+/**
+ * Lead references that produced more than one record.
+ *
+ * Legitimate for `U036` only, where two named students genuinely share an ID,
+ * and the caller passes that through as a known split. Anything else is a join
+ * that failed, and the write boundary refuses it.
+ */
+export function splitLeadRefs(leads: MergedCrmLead[]): string[] {
+  const byRef = new Map<string, Set<string>>();
+  for (const lead of leads) {
+    const key = `${lead.tab}::${lead.leadRef}`;
+    const held = byRef.get(key) ?? new Set<string>();
+    held.add(lead.identity);
+    byRef.set(key, held);
+  }
+  return [...byRef.entries()]
+    .filter(([, identities]) => identities.size > 1)
+    .map(([key]) => key)
+    .sort();
 }
