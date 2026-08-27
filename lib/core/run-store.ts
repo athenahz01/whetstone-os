@@ -64,6 +64,12 @@ export interface ApprovalRecord {
   decision: ApprovalDecision;
 }
 
+export interface RecordApprovalInput extends ApprovalRecord {
+  runId: string;
+  editDistance: number;
+  requiredNewResearch: boolean;
+}
+
 /**
  * The KPI substrate. Every workflow execution writes through this, which is
  * what makes KPI #4's denominator complete: a run that fails at step one has
@@ -75,6 +81,7 @@ export interface RunStore {
   recordStep(input: RecordStepInput): Promise<void>;
   recordMeasurement(input: RecordMeasurementInput): Promise<void>;
   recordException(input: RecordExceptionInput): Promise<void>;
+  recordApproval(input: RecordApprovalInput): Promise<void>;
   /** Approvals carrying a human `approved_by` that permit external action. */
   findGrantingApproval(runId: string): Promise<ApprovalRecord | null>;
   costUsdSince(since: Date): Promise<number>;
@@ -127,6 +134,12 @@ export class PrismaRunStore implements RunStore {
 
   async recordException(input: RecordExceptionInput): Promise<void> {
     await this.client.exception.create({
+      data: { orgId: this.orgId, ...input },
+    });
+  }
+
+  async recordApproval(input: RecordApprovalInput): Promise<void> {
+    await this.client.approval.create({
       data: { orgId: this.orgId, ...input },
     });
   }

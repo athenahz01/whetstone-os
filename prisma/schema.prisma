@@ -49,6 +49,7 @@ model Lead {
   tutorId           String?   @map("tutor_id")
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   drafts            Draft[]
+  researchBriefs    ResearchBrief[]
   outcomes          Outcome[]
   tutor             Tutor?    @relation(fields: [tutorId], references: [id], onDelete: SetNull)
 
@@ -165,11 +166,35 @@ model Run {
   approvals       Approval[]
   measurements    Measurement[]
   exceptions      Exception[]
+  researchBrief   ResearchBrief?
 
   @@index([orgId, startedAt, workflowId])
   @@index([orgId, startedAt, status, humanRescue])
   @@index([orgId, workflowId, startedAt])
   @@map("runs")
+}
+
+model ResearchBrief {
+  id           String   @id @default(uuid()) @db.Uuid
+  orgId        String   @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
+  runId        String   @unique @map("run_id") @db.Uuid
+  leadId       String   @map("lead_id")
+  whyFit       Json     @map("why_fit")
+  hooks        Json
+  disqualifier Json
+  unknowns     Json
+  confidence   Decimal  @db.Decimal(4, 3)
+  evidence     Json
+  exclusions   Json
+  status       String   @default("ready_for_review")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  run          Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  lead         Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, leadId, createdAt])
+  @@index([orgId, status, createdAt])
+  @@map("research_briefs")
 }
 
 model RunStep {

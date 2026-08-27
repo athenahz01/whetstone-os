@@ -5,6 +5,7 @@ import {
   type CreateRunInput,
   type FinishRunInput,
   type RecordExceptionInput,
+  type RecordApprovalInput,
   type RecordMeasurementInput,
   type RecordStepInput,
   type RunStore,
@@ -31,7 +32,7 @@ export class MemoryRunStore implements RunStore {
   readonly steps: RecordStepInput[] = [];
   readonly measurements: RecordMeasurementInput[] = [];
   readonly exceptions: RecordExceptionInput[] = [];
-  readonly approvals: (ApprovalRecord & { runId: string })[] = [];
+  readonly approvals: RecordApprovalInput[] = [];
   private counter = 0;
 
   constructor(private readonly now: () => Date = () => new Date()) {}
@@ -69,6 +70,10 @@ export class MemoryRunStore implements RunStore {
 
   async recordException(input: RecordExceptionInput): Promise<void> {
     this.exceptions.push(input);
+  }
+
+  async recordApproval(input: RecordApprovalInput): Promise<void> {
+    this.approvals.push(input);
   }
 
   /**
@@ -115,6 +120,8 @@ export class MemoryRunStore implements RunStore {
       artifactKind: "outreach-draft",
       approvedBy: "Athena Huo",
       decision: "accept",
+      editDistance: 0,
+      requiredNewResearch: false,
       ...approval,
     });
   }

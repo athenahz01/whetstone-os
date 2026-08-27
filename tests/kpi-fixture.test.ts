@@ -232,5 +232,8 @@ describe("KPI queries are one indexed read each", () => {
       expect(query.where.orgId).toBe("00000000-0000-0000-0000-000000000001");
       expect(JSON.stringify(query.where)).toContain("2026-08-01");
     }
+    expect(approvalFindMany.mock.calls[0][0].where.artifactKind).toEqual({
+      in: ["research-brief", "outreach-draft", "marketing-content"],
+    });
   });
 });

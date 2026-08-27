@@ -214,6 +214,9 @@ export class KpiRepository {
       where: {
         orgId: this.orgId,
         decidedAt: { gte: window.from, lt: window.to },
+        artifactKind: {
+          in: ["research-brief", "outreach-draft", "marketing-content"],
+        },
       },
       select: { editDistance: true, requiredNewResearch: true },
     });

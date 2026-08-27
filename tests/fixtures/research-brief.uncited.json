@@ -1,0 +1,67 @@
+{
+  "leadId": "thin-prospect",
+  "whyFit": {
+    "label": "Match evidence",
+    "claims": [
+      {
+        "id": "fit-supported",
+        "text": "Supported fact.",
+        "evidenceIds": ["evidence-supported"]
+      }
+    ]
+  },
+  "hooks": [
+    {
+      "angle": "Use a supported detail.",
+      "claim": {
+        "id": "hook-supported-1",
+        "text": "Supported fact.",
+        "evidenceIds": ["evidence-supported"]
+      }
+    },
+    {
+      "angle": "This deliberately invented detail must fail.",
+      "claim": {
+        "id": "hook-deliberately-uncited",
+        "text": "The prospect won a regional essay prize.",
+        "evidenceIds": []
+      }
+    },
+    {
+      "angle": "Use another supported detail.",
+      "claim": {
+        "id": "hook-supported-3",
+        "text": "Supported fact.",
+        "evidenceIds": ["evidence-supported"]
+      }
+    }
+  ],
+  "disqualifier": {
+    "label": "Fit risk requiring human confirmation",
+    "basis": {
+      "id": "disqualifier-supported",
+      "text": "Supported fact.",
+      "evidenceIds": ["evidence-supported"]
+    }
+  },
+  "unknowns": [
+    {
+      "id": "unknown-supported",
+      "text": "Supported fact.",
+      "evidenceIds": ["evidence-supported"]
+    }
+  ],
+  "confidence": 0.3,
+  "evidence": [
+    {
+      "id": "evidence-supported",
+      "kind": "prospect-supplied",
+      "sourceUrl": "https://www.wyzant.com/tutor/jobs/thin-prospect",
+      "title": "Prospect source",
+      "excerpt": "Supported fact.",
+      "fact": "Supported fact."
+    }
+  ],
+  "exclusions": [],
+  "contextHash": "fixture-context"
+}
