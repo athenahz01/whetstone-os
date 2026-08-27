@@ -1,11 +1,66 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { EmailAdapter } from "../lib/adapters/email";
 import { WyzantAdapter } from "../lib/adapters/wyzant";
 import { CounselorsAdapter } from "../lib/adapters/counselors";
 import { ReengagementAdapter } from "../lib/adapters/reengagement";
 import { ReferralsAdapter } from "../lib/adapters/referrals";
+import {
+  activateAllowedControl,
+  ForbiddenAdapterInteractionError,
+  isAllowedControlSelector,
+  PAGINATION_CONTROL_SELECTORS,
+} from "../lib/adapters/interaction";
 import { lead } from "./helpers";
+
+const ADAPTERS = new URL("../lib/adapters/", import.meta.url);
+const INTERACTION_HELPER = "interaction.ts";
+
+/**
+ * Interaction primitives. Any of these in an adapter is a second route to a
+ * control, around the one helper that checks what it is touching.
+ *
+ * `evaluate` is not forbidden outright, because the adapter legitimately
+ * scrolls with it. An `evaluate` body containing a click is a different thing
+ * and is caught separately below.
+ */
+const INTERACTION_PRIMITIVES: [string, RegExp][] = [
+  ["click", /\.click\s*\(/],
+  ["dispatchEvent", /\bdispatchEvent\s*\(/],
+  ["mouse", /\.mouse\s*\./],
+  ["keyboard", /\.keyboard\s*\./],
+  ["press", /\.press\s*\(/],
+  ["tap", /\.tap\s*\(/],
+  ["fill", /\.fill\s*\(/],
+  ["type", /\.type\s*\(/],
+  ["selectOption", /\.selectOption\s*\(/],
+  ["check", /\.(?:check|uncheck)\s*\(/],
+  ["submit", /\.submit\s*\(/],
+  ["requestSubmit", /\brequestSubmit\s*\(/],
+];
+
+/** A click smuggled inside an evaluated page function. */
+const EVALUATED_CLICK = /evaluate[\s\S]{0,400}?\.click\s*\(/;
+
+async function adapterSources(): Promise<[string, string][]> {
+  const entries = await readdir(ADAPTERS, { withFileTypes: true });
+  return Promise.all(
+    entries
+      .filter(
+        (entry) =>
+          entry.isFile() &&
+          entry.name.endsWith(".ts") &&
+          entry.name !== INTERACTION_HELPER,
+      )
+      .map(
+        async (entry) =>
+          [
+            entry.name,
+            await readFile(new URL(entry.name, ADAPTERS), "utf8"),
+          ] as [string, string],
+      ),
+  );
+}
 
 describe("regression lock: no automatic submission", () => {
   it("returns prefills from every production adapter and records no send", async () => {
@@ -71,16 +126,95 @@ describe("regression lock: no automatic submission", () => {
         (await adapter.send(contact, "Approved by a person")).prefillUrl,
       ).toMatch(/^mailto:/);
     }
+  });
 
-    const sources = await Promise.all(
-      ["wyzant.ts", "reengagement.ts", "referrals.ts", "counselors.ts"].map(
-        (file) =>
-          readFile(new URL(`../lib/adapters/${file}`, import.meta.url), "utf8"),
+  /**
+   * The real guard. It fails on what the interaction touches, not on how the
+   * touch is spelled, because a spelling check is one rename from blind.
+   */
+  it("lets an adapter touch pagination controls and nothing else", () => {
+    // Naming the shapes, not just counting them. An allow-list gutted to
+    // nothing would make every check below vacuous and the lock would go quiet
+    // rather than fail, which is how the last one went blind.
+    expect(PAGINATION_CONTROL_SELECTORS.length).toBeGreaterThan(0);
+    expect(PAGINATION_CONTROL_SELECTORS).toContain("a[rel='next']");
+    expect(
+      PAGINATION_CONTROL_SELECTORS.some((selector) =>
+        /load more|show more/i.test(selector),
       ),
+    ).toBe(true);
+    for (const selector of PAGINATION_CONTROL_SELECTORS) {
+      // Every entry advances a listing.
+      expect(selector, selector).toMatch(/next|more|pagination/i);
+      // None of them could send, apply, message or contact anyone.
+      expect(selector, selector).not.toMatch(
+        /submit|\bsend\b|apply|message|contact|email|reply|post\b|confirm|checkout|pay\b/i,
+      );
+    }
+  });
+
+  it("refuses a selector that is not on the allow-list", async () => {
+    expect(isAllowedControlSelector("button[type='submit']")).toBe(false);
+    const page = {
+      locator: () => {
+        throw new Error("the helper resolved a locator before checking");
+      },
+    };
+    await expect(
+      activateAllowedControl(page as never, {
+        selector: "button[type='submit']" as never,
+        index: 0,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenAdapterInteractionError);
+  });
+
+  it("keeps every interaction primitive out of every adapter", async () => {
+    for (const [file, source] of await adapterSources()) {
+      for (const [name, pattern] of INTERACTION_PRIMITIVES) {
+        expect(
+          pattern.test(source),
+          `${file} interacts with the page directly via ${name}. Route it through activateAllowedControl in ${INTERACTION_HELPER}, which checks what it is touching.`,
+        ).toBe(false);
+      }
+      expect(
+        EVALUATED_CLICK.test(source),
+        `${file} smuggles a click inside an evaluated page function`,
+      ).toBe(false);
+    }
+  });
+
+  it("keeps the helper itself down to one interaction", async () => {
+    const helper = await readFile(
+      new URL(INTERACTION_HELPER, ADAPTERS),
+      "utf8",
     );
-    const source = sources.join("\n");
-    expect(source).not.toMatch(/\.click\s*\(/);
-    expect(source).not.toMatch(/\bfetch\s*\(/);
-    expect(source).not.toMatch(/\.(sendMail|post)\s*\(/);
+    const code = helper.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+    expect(code.match(/\bdispatchEvent\s*\(/g) ?? []).toHaveLength(1);
+    for (const [name, pattern] of INTERACTION_PRIMITIVES) {
+      if (name === "dispatchEvent") continue;
+      expect(
+        pattern.test(code),
+        `${INTERACTION_HELPER} also uses ${name}`,
+      ).toBe(false);
+    }
+    // The check has to happen before a locator is resolved, or a caller could
+    // hand it one pointing anywhere.
+    expect(code.indexOf("ForbiddenAdapterInteractionError")).toBeLessThan(
+      code.indexOf("page.locator"),
+    );
+  });
+
+  it("still forbids the network and mail primitives it always did", async () => {
+    // A bare fetch is an outbound HTTP call. `client.fetch(...)` in email.ts is
+    // ImapFlow reading a mailbox opened read-only, so the pattern excludes a
+    // method call rather than excluding the file from the scan.
+    const outboundFetch = /(?<![.\w])fetch\s*\(/;
+    for (const [file, source] of await adapterSources()) {
+      expect(outboundFetch.test(source), file).toBe(false);
+      expect(/\.(sendMail|post)\s*\(/.test(source), file).toBe(false);
+    }
+    const email = await readFile(new URL("email.ts", ADAPTERS), "utf8");
+    expect(email).toMatch(/client\.fetch\s*\(/);
+    expect(email).toMatch(/readOnly:\s*true/);
   });
 });

@@ -5,6 +5,7 @@ import {
   type BrowserContextOptions,
   type Page,
 } from "playwright";
+import { activateAllowedControl, findAllowedControl } from "./interaction";
 import { stableLeadId } from "../core/stable-id";
 import type { AdapterException, ChannelAdapter, Lead } from "../core/types";
 
@@ -359,9 +360,11 @@ async function advanceWyzantBoard(page: Page): Promise<boolean> {
   await page.waitForTimeout(750);
   if ((await readWyzantJobSignature(page)) !== beforeSignature) return true;
 
-  const nextControl = await findWyzantNextControl(page);
+  // The only interaction this adapter performs, and it does not perform it
+  // itself. See lib/adapters/interaction.ts for why that separation exists.
+  const nextControl = await findAllowedControl(page);
   if (!nextControl) return false;
-  await nextControl.dispatchEvent("click");
+  await activateAllowedControl(page, nextControl);
   return page
     .waitForFunction(
       ({ previousUrl, previousSignature }) => {
@@ -379,32 +382,6 @@ async function advanceWyzantBoard(page: Page): Promise<boolean> {
     )
     .then(() => true)
     .catch(() => false);
-}
-
-async function findWyzantNextControl(page: Page) {
-  const selectors = [
-    "a[rel='next']",
-    ".pagination li.next:not(.disabled) a",
-    ".pagination li.active + li a",
-    "[class*='pagination'] a[aria-label*='next' i]",
-    "[class*='pagination'] button[aria-label*='next' i]",
-    "a:has-text('Load more')",
-    "button:has-text('Load more')",
-    "a:has-text('Show more')",
-    "button:has-text('Show more')",
-    "a:has-text('Next')",
-    "button:has-text('Next')",
-  ];
-  for (const selector of selectors) {
-    const candidates = page.locator(selector);
-    for (let index = 0; index < (await candidates.count()); index += 1) {
-      const candidate = candidates.nth(index);
-      if ((await candidate.isVisible()) && (await candidate.isEnabled())) {
-        return candidate;
-      }
-    }
-  }
-  return undefined;
 }
 
 async function readWyzantJobSignature(page: Page): Promise<string> {
