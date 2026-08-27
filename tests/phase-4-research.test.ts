@@ -6,7 +6,10 @@ import { computeOutputAcceptance } from "../lib/core/kpi";
 import {
   citationGateIssues,
   DeterministicResearchAgent,
+  publicSentenceHasMinorPersonalData,
   renderResearchBrief,
+  renderTraceabilityIssues,
+  selectIcpFact,
   scopePublicSources,
   type PublicSourcePage,
   type ResearchBrief,
@@ -135,7 +138,15 @@ describe("Phase 4 S2 research workflow", () => {
     expect(brief.hooks).toHaveLength(3);
     expect(brief.unknowns.length).toBeGreaterThan(0);
     expect(brief.whyFit.claims).toHaveLength(2);
-    expect(brief.disqualifier.label).toBe("Disqualifying uncertainty");
+    expect(
+      brief.whyFit.claims.find((item) => item.id === "fit-icp")?.text,
+    ).toBe(
+      "The subject matches one of the four approved subjects above, and no part of the request falls in the out-of-scope list.",
+    );
+    expect(brief.disqualifier.basis.text).toContain("Fit risk for SAT Reading");
+    expect(brief.unknowns.map((item) => item.text)).not.toContain(
+      brief.disqualifier.basis.text,
+    );
     expect(citationGateIssues(brief)).toEqual([]);
     expect(renderResearchBrief(brief)).toContain(
       "https://program.example/reading-workshop",
@@ -228,6 +239,121 @@ describe("Phase 4 S2 research workflow", () => {
     expect(citationGateIssues(brief)).toContainEqual({
       claimId: "hook-1",
       reason: "every citation must textually support the claim",
+    });
+  });
+
+  it("rejects free prose injected into a hook angle alone", async () => {
+    const trusted = await makeValidBrief();
+    const tampered = structuredClone(trusted);
+    const hook = tampered.hooks[0] as ResearchBrief["hooks"][0] & {
+      angle: string;
+    };
+    hook.angle = "The mother is a Stanford admissions officer.";
+    expect(citationGateIssues(tampered, trusted)).toContainEqual({
+      claimId: "hook-1.angle",
+      reason: "free-text hook angles are forbidden",
+    });
+    expect(renderResearchBrief(tampered)).not.toContain("Stanford");
+  });
+
+  it("rejects free prose injected into the why-fit label alone", async () => {
+    const trusted = await makeValidBrief();
+    const tampered = structuredClone(trusted) as ResearchBrief & {
+      whyFit: ResearchBrief["whyFit"] & { label: string };
+    };
+    tampered.whyFit.label = "The family already paid a competitor.";
+    expect(citationGateIssues(tampered, trusted)).toContainEqual({
+      claimId: "brief.whyFit.label",
+      reason: "free-text why-fit labels are forbidden",
+    });
+    expect(renderResearchBrief(tampered)).not.toContain("competitor");
+  });
+
+  it("rejects free prose injected into the disqualifier label alone", async () => {
+    const trusted = await makeValidBrief();
+    const tampered = structuredClone(trusted) as ResearchBrief & {
+      disqualifier: ResearchBrief["disqualifier"] & { label: string };
+    };
+    tampered.disqualifier.label = "No real risk identified.";
+    expect(citationGateIssues(tampered, trusted)).toContainEqual({
+      claimId: "brief.disqualifier.label",
+      reason: "free-text disqualifier labels are forbidden",
+    });
+    expect(renderResearchBrief(tampered)).not.toContain("No real risk");
+  });
+
+  it("does not save a swapped agent brief with fabrication in all three former prose fields", async () => {
+    const tampered = structuredClone(await makeValidBrief());
+    const hook = tampered.hooks[0] as ResearchBrief["hooks"][0] & {
+      angle: string;
+    };
+    const whyFit = tampered.whyFit as ResearchBrief["whyFit"] & {
+      label: string;
+    };
+    const disqualifier =
+      tampered.disqualifier as ResearchBrief["disqualifier"] & {
+        label: string;
+      };
+    hook.angle = "The mother is a Stanford admissions officer.";
+    whyFit.label = "The family already paid a competitor.";
+    disqualifier.label = "No real risk identified.";
+
+    const store = new MemoryRunStore();
+    store.approve("run-1", { artifactKind: "research-source-access" });
+    const repository = new MemoryResearchBriefRepository();
+    const result = await runWorkflow(
+      createResearchWorkflow({
+        lead: qualifiedLead(),
+        sources: sourceProvider(richPublicSources()),
+        repository,
+        agent: {
+          async create() {
+            return tampered;
+          },
+        },
+      }),
+      { store, trigger: "free-prose-agent-swap-probe" },
+    );
+
+    expect(result.status).toBe("failed");
+    expect(repository.saved).toEqual([]);
+    const messages = store.exceptions.map((item) => item.message).join("\n");
+    expect(messages).toContain("hook-1.angle");
+    expect(messages).toContain("brief.whyFit.label");
+    expect(messages).toContain("brief.disqualifier.label");
+  });
+
+  it("rejects a hook kind outside the closed vocabulary", async () => {
+    const trusted = await makeValidBrief();
+    const tampered = structuredClone(trusted);
+    tampered.hooks[0].kind =
+      "family-budget" as (typeof tampered.hooks)[0]["kind"];
+    expect(citationGateIssues(tampered, trusted)).toContainEqual({
+      claimId: "hook-1.kind",
+      reason: "hook kind is outside the closed vocabulary",
+    });
+  });
+
+  it("rejects a supported claim placed under the wrong hook role", async () => {
+    const trusted = await makeValidBrief();
+    const tampered = structuredClone(trusted);
+    tampered.hooks[0].claim = structuredClone(trusted.hooks[1].claim);
+    expect(citationGateIssues(tampered, trusted)).toContainEqual({
+      claimId: "hook-1.claim",
+      reason: "hook claim does not match the scoped evidence role",
+    });
+  });
+
+  it("names an untraceable substring in the rendered artifact", async () => {
+    const brief = await makeValidBrief();
+    const rendered = renderResearchBrief(brief).replace(
+      "Hooks:",
+      "Hooks: family budget is approved",
+    );
+    expect(renderTraceabilityIssues(brief, rendered)).toContainEqual({
+      claimId: expect.stringMatching(/^rendered\.traceability\.line-/),
+      reason:
+        "rendered text is not traceable to a cited claim or constant vocabulary",
     });
   });
 
@@ -338,6 +464,72 @@ describe("Phase 4 S2 research workflow", () => {
     );
   });
 
+  it("rejects all ten audited minor-detail phrasings at sentence scope", () => {
+    const phrasings = [
+      "Jordan Lee is age 16 and attends North Example School.",
+      "Jordan Lee is 16 years old and studies SAT Reading.",
+      "She's 15 and studies SAT Reading.",
+      "Jordan is in 10th grade and studies SAT Reading.",
+      "Jordan is a sophomore studying SAT Reading.",
+      "Their daughter studies SAT Reading and uses jordan@example.test.",
+      "Jordan is a junior at North Example High School studying SAT Reading.",
+      "Jordan was born March 2010 and studies SAT Reading.",
+      "student@example.test is the email for their daughter studying SAT Reading.",
+      "Jordan is turning 17 next month and studies SAT Reading.",
+    ];
+    for (const sentence of phrasings) {
+      expect(publicSentenceHasMinorPersonalData(sentence), sentence).toBe(true);
+      const scoped = scopePublicSources([
+        {
+          url: `https://school.example/${phrasings.indexOf(sentence)}`,
+          title: "Public profile",
+          content: sentence,
+          access: "public",
+          acquisition: "direct-public-page",
+        },
+      ]);
+      expect(scoped.allowed, sentence).toEqual([]);
+      expect(scoped.exclusions, sentence).toEqual([
+        expect.objectContaining({ reason: "minor-personal-data" }),
+      ]);
+    }
+  });
+
+  it("removes a minor-detail sentence while preserving a safe sentence on the same page", () => {
+    const scoped = scopePublicSources([
+      {
+        url: "https://library.example/mixed-page",
+        title: "Library reading program",
+        content:
+          "The public library offers SAT Reading workshops every Saturday. Jordan is a sophomore at North Example High School.",
+        access: "public",
+        acquisition: "direct-public-page",
+      },
+    ]);
+
+    expect(scoped.allowed).toHaveLength(1);
+    expect(scoped.allowed[0].content).toBe(
+      "The public library offers SAT Reading workshops every Saturday.",
+    );
+    expect(scoped.exclusions).toEqual([
+      expect.objectContaining({ reason: "minor-personal-data" }),
+    ]);
+  });
+
+  it("allows a public program page with no personal minor detail", () => {
+    const page = {
+      url: "https://library.example/safe-program",
+      title: "Library reading program",
+      content:
+        "The public library offers SAT Reading workshops every Saturday.",
+      access: "public" as const,
+      acquisition: "direct-public-page" as const,
+    };
+    const scoped = scopePublicSources([page]);
+    expect(scoped.allowed).toEqual([page]);
+    expect(scoped.exclusions).toEqual([]);
+  });
+
   it("excludes a fetched minor detail before evidence assembly and logs only the source exclusion", async () => {
     const minorPage = await readJsonFixture<PublicSourcePage>(
       "research-source.minor-detail.json",
@@ -401,6 +593,95 @@ describe("Phase 4 S2 research workflow", () => {
       "enrichment-vendor",
       "not-public",
     ]);
+  });
+
+  it("derives different cited disqualifiers for different prospect risks", async () => {
+    const firstBase = qualifiedLead();
+    const secondBase = qualifiedLead({
+      id: "english-prospect",
+      subject: "English",
+      text: "Grade 10 student wants analytical English reading support this fall.",
+    });
+    const first = await new DeterministicResearchAgent().create({
+      lead: {
+        ...firstBase,
+        location: "New York, NY",
+        raw: {
+          ...(firstBase.raw as Record<string, unknown>),
+          preferredNextStep: "Schedule an introductory call",
+        },
+      },
+      context: await loadAgentContext(),
+      publicSources: richPublicSources(),
+      exclusions: [],
+    });
+    const second = await new DeterministicResearchAgent().create({
+      lead: {
+        ...secondBase,
+        location: undefined,
+        raw: {
+          ...(secondBase.raw as Record<string, unknown>),
+          deadline: "2026-12-01",
+          preferredNextStep: "Review tutoring options",
+        },
+      },
+      context: await loadAgentContext(),
+      publicSources: richPublicSources(),
+      exclusions: [],
+    });
+
+    expect(first.disqualifier.basis.text).toContain(
+      "deadline was not provided",
+    );
+    expect(second.disqualifier.basis.text).toContain(
+      "location was not provided",
+    );
+    expect(first.disqualifier.basis.text).not.toBe(
+      second.disqualifier.basis.text,
+    );
+    expect(first.unknowns.map((item) => item.text)).not.toContain(
+      first.disqualifier.basis.text,
+    );
+    expect(second.unknowns.map((item) => item.text)).not.toContain(
+      second.disqualifier.basis.text,
+    );
+    expect(citationGateIssues(first)).toEqual([]);
+    expect(citationGateIssues(second)).toEqual([]);
+  });
+
+  it("states when no genuine fit risk is identified and cites that review", async () => {
+    const base = qualifiedLead({ location: "New York, NY" });
+    const brief = await new DeterministicResearchAgent().create({
+      lead: {
+        ...base,
+        raw: {
+          ...(base.raw as Record<string, unknown>),
+          deadline: "2026-12-01",
+          preferredNextStep: "Schedule a tutoring session",
+        },
+      },
+      context: await loadAgentContext(),
+      publicSources: richPublicSources(),
+      exclusions: [],
+    });
+
+    expect(brief.disqualifier.basis.text).toBe(
+      "Fit risk for SAT Reading: none identified in the scoped evidence.",
+    );
+    expect(brief.disqualifier.basis.evidenceIds).toHaveLength(1);
+    expect(citationGateIssues(brief)).toEqual([]);
+  });
+
+  it("rejoins wrapped ICP bullet continuations before selecting a fit fact", () => {
+    const wrapped = [
+      "### Wyzant screen",
+      "",
+      "- The subject matches one of the four approved subjects above, and no part of",
+      "  the request falls in the out-of-scope list.",
+    ].join("\n");
+    expect(selectIcpFact(wrapped, qualifiedLead())).toBe(
+      "The subject matches one of the four approved subjects above, and no part of the request falls in the out-of-scope list.",
+    );
   });
 });
 

@@ -1,7 +1,7 @@
 {
   "url": "https://school.example/student-profile",
   "title": "Student profile",
-  "content": "Jordan Lee is age 16 and attends North Example School. Jordan's direct email is student@example.test.",
+  "content": "Jordan Lee is 16 years old and attends North Example School. Jordan's direct email is student@example.test.",
   "access": "public",
   "acquisition": "direct-public-page"
 }

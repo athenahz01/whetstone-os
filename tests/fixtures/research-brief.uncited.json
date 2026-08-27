@@ -1,7 +1,6 @@
 {
   "leadId": "thin-prospect",
   "whyFit": {
-    "label": "Match evidence",
     "claims": [
       {
         "id": "fit-supported",
@@ -12,7 +11,7 @@
   },
   "hooks": [
     {
-      "angle": "Use a supported detail.",
+      "kind": "prospect-request",
       "claim": {
         "id": "hook-supported-1",
         "text": "Supported fact.",
@@ -20,7 +19,7 @@
       }
     },
     {
-      "angle": "This deliberately invented detail must fail.",
+      "kind": "subject-match",
       "claim": {
         "id": "hook-deliberately-uncited",
         "text": "The prospect won a regional essay prize.",
@@ -28,7 +27,7 @@
       }
     },
     {
-      "angle": "Use another supported detail.",
+      "kind": "public-context",
       "claim": {
         "id": "hook-supported-3",
         "text": "Supported fact.",
@@ -37,7 +36,6 @@
     }
   ],
   "disqualifier": {
-    "label": "Fit risk requiring human confirmation",
     "basis": {
       "id": "disqualifier-supported",
       "text": "Supported fact.",
