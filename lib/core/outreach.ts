@@ -3,6 +3,7 @@ import type { AgentContext } from "./context";
 import type { ClaudeClient } from "./drafting";
 import { parseFactsRegister, type FactsRegister } from "./facts";
 import { readQualification } from "./qualification";
+import { contradictedAbsences, sourceSupplies } from "./source-truth";
 import type { Lead } from "./types";
 import {
   CHANNEL_WORD_BOUNDS,
@@ -111,7 +112,18 @@ export const OUTREACH_QA_RULES: readonly string[] = [
   "Is warm, calm and adult-to-adult, and acknowledges the concern without amplifying anxiety.",
   "Offers exactly one low-pressure next step, phrased as a question.",
   "Claims no result, and implies nothing was sent or approved.",
+  // The five hard blocks, stated as concepts rather than as tokens. The lint
+  // catches the blunt phrasings; paraphrase is exactly what a model reviewer
+  // is here for, so it is asked about each block directly.
+  "States nothing about Wright tuition, any rung of its award ladder, or its application dates, in figures, in words or as a range. FACTS.md C-001 and C-006 block them.",
+  "States nothing about the scholarship's value, deadline, decision schedule or award structure. FACTS.md C-002, C-003 and C-004 block them.",
+  "Rests on nothing in the draft scholarship terms, which FACTS.md C-005 blocks because they are unreviewed by counsel.",
+  "Makes no claim about Cole's education, degrees, institutions or academic background, named or unnamed. FACTS.md holds no VERIFIED credential row, so there is nothing to paraphrase.",
+  "Offers help only with College Counseling, English, Essay Writing and SAT Reading. FACTS.md F-005 approves no others, and not SAT Math or any ACT section.",
 ] as const;
+
+/** The indexes of the five hard blocks inside OUTREACH_QA_RULES. */
+export const QA_BLOCK_RULE_INDEXES = [11, 12, 13, 14, 15] as const;
 
 export interface QaVerdict {
   /** One score per rule, in the order of OUTREACH_QA_RULES. */
@@ -317,13 +329,20 @@ function planFor(variant: OutreachVariant): string {
   return `So the first session would be diagnostic: we look at one real example together and I tell you plainly what I see. If it is not something I can help with, I will say so.`;
 }
 
+/**
+ * Derived from the source message, not from a structured field.
+ *
+ * A limitation may only assert an absence the message actually has. The
+ * prospect who wrote "before the November test" supplied the timing, and a
+ * draft telling them otherwise reads as though nobody opened their message.
+ */
 function disqualifierFor(lead: Lead, subject: string): string {
-  const raw =
-    lead.raw && typeof lead.raw === "object"
-      ? (lead.raw as Record<string, unknown>)
-      : {};
-  if (typeof raw.deadline !== "string" || !raw.deadline.trim()) {
+  const supplies = sourceSupplies(lead);
+  if (!supplies.timing) {
     return `One thing to be straight about: you have not said when the test is, and I cannot promise a particular result without knowing how much runway there is.`;
+  }
+  if (!supplies.format) {
+    return `One thing to be straight about: you have not said whether you want this online or in person, and that changes what I would suggest.`;
   }
   return `One thing to be straight about: I cannot promise a particular result, and ${subject} rewards steady weeks rather than a sprint at the end.`;
 }
@@ -345,6 +364,12 @@ export interface OutreachGateResult {
   rendered: string;
 }
 
+export interface OutreachGateInput {
+  draft: OutreachDraft;
+  facts: FactsRegister;
+  lead: Lead;
+}
+
 /**
  * Deterministic first, model second. The model is never asked to judge
  * something a regex settles, and a draft that fails the lint never reaches it.
@@ -353,19 +378,29 @@ export function outreachVoiceGate(
   draft: OutreachDraft,
   facts: FactsRegister,
   sourceDetails: string[],
+  lead?: Lead,
 ): OutreachGateResult {
   const rendered = renderOutreachDraft(draft);
-  return {
-    rendered,
-    issues: voiceLint({
-      body: rendered,
-      channel: draft.channel,
-      disqualifier: draft.disqualifier,
-      ask: draft.ask,
-      sourceDetails,
-      facts,
-    }),
-  };
+  const issues = voiceLint({
+    body: rendered,
+    channel: draft.channel,
+    disqualifier: draft.disqualifier,
+    ask: draft.ask,
+    sourceDetails,
+    facts,
+  });
+  // voiceLint reads the draft. Only this can read the message behind it, so a
+  // claim of absence gets checked against what the prospect actually wrote.
+  if (lead) {
+    for (const issue of contradictedAbsences(rendered, lead)) {
+      issues.push({
+        rule: issue.rule,
+        reason: issue.reason,
+        evidence: issue.evidence,
+      });
+    }
+  }
+  return { rendered, issues };
 }
 
 /* Production agents ---------------------------------------------------------

@@ -1,4 +1,5 @@
 import { checkableFigures, normalizeFigure, type FactsRegister } from "./facts";
+import { topicGate } from "./topics";
 
 /**
  * Deterministic voice and safety lint. Runs before the model QA, so the model
@@ -72,10 +73,10 @@ const CREDENTIAL_CLAIM =
   /\b(?:I(?:'ve| have)\s+(?:taught|tutored|coached|worked with)|years of experience|my background|I hold a|I earned a)\b/gi;
 
 const OUTCOME_NOUN =
-  /\b(?:admission|admitted|acceptance|accepted|get in|getting in|score|scores|scholarship|award|result|results|chances?|odds|probability|spot)\b/i;
+  /\b(?:admission|admitted|acceptance|accepted|get in|getting in|score|scores|scholarship|award|result|results|chances?|odds|probability|spot|movement|progress|improvement|gains?|growth)\b/i;
 
 const PROMISE_MARKER =
-  /\b(?:guarantee[ds]?|guaranteeing|ensure[sd]?|promise[sd]?|will\s+(?:\w+\s+){0,2}(?:get|be|have|see|go|improve|raise|increase)|definitely|certainly|going to\s+(?:get|be)|expect to|should\s+(?:get|see|be)|likely|probably|good chance|strong chance|practically|virtually|almost certainly|confident (?:that|you|she|he|they))\b/i;
+  /\b(?:guarantee[ds]?|guaranteeing|ensure[sd]?|promise[sd]?|will\s+(?:\w+\s+){0,2}(?:get|be|have|see|go|improve|raise|increase)|definitely|certainly|going to\s+(?:get|be)|expect to|should\s+(?:get|see|be)|likely|probably|tends? to|often|routinely|generally|commonly|in (?:her|his|their) position|good chance|strong chance|practically|virtually|almost certainly|confident (?:that|you|she|he|they))\b/i;
 
 /**
  * An outcome that moves is an outcome claimed. "tend to see their scores move"
@@ -246,6 +247,9 @@ export function lintFragment(
     if (match) add(rule, "banned word or phrase in VOICE.md", match[0]);
   }
   for (const sentence of sentences(fragment)) {
+    for (const issue of topicGate(sentence, facts)) {
+      add(issue.rule, issue.reason, issue.evidence);
+    }
     lintSentence(
       sentence,
       {
@@ -280,6 +284,12 @@ export function voiceLint(input: VoiceLintInput): VoiceLintIssue[] {
   }
 
   for (const sentence of sentences(body)) {
+    // Topic first. It asks what the sentence is about and requires a VERIFIED
+    // row behind any claim in a flagged topic, which is what catches the
+    // paraphrase a word pattern cannot see.
+    for (const issue of topicGate(sentence, facts)) {
+      add(issue.rule, issue.reason, issue.evidence);
+    }
     lintSentence(sentence, input, add);
   }
 

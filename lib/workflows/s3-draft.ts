@@ -121,9 +121,12 @@ export function createDraftWorkflow(options: DraftWorkflowOptions): Workflow {
             tutorId: options.tutorId ?? options.lead.tutorId ?? "unassigned",
           });
           const facts = parseFactsRegister(context.documents["FACTS.md"]);
-          const gate = outreachVoiceGate(draft, facts, [
-            sourceEcho(options.lead, facts),
-          ]);
+          const gate = outreachVoiceGate(
+            draft,
+            facts,
+            [sourceEcho(options.lead, facts)],
+            options.lead,
+          );
           return { draft, rendered: gate.rendered };
         },
       },
@@ -137,9 +140,12 @@ export function createDraftWorkflow(options: DraftWorkflowOptions): Workflow {
             options.loadContext ?? loadAgentContext
           )();
           const facts = parseFactsRegister(agentContext.documents["FACTS.md"]);
-          const gate = outreachVoiceGate(previous.draft, facts, [
-            sourceEcho(options.lead, facts),
-          ]);
+          const gate = outreachVoiceGate(
+            previous.draft,
+            facts,
+            [sourceEcho(options.lead, facts)],
+            options.lead,
+          );
           for (const issue of gate.issues) {
             await context.recordException({
               kind: "OutreachVoiceGateFailed",

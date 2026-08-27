@@ -202,7 +202,7 @@ describe("S3 model QA runs second and cannot agree with itself", () => {
         renderedDraft: "a draft",
         factsRegister: "a register",
       }),
-    ).rejects.toThrow(/2 scores for 11 rules/);
+    ).rejects.toThrow(/2 scores for 16 rules/);
   });
 
   it("loads VOICE.md and FACTS.md into the drafting prompt", () => {

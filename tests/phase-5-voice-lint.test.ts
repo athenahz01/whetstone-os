@@ -106,6 +106,12 @@ const MUST_BLOCK: [string, string][] = [
     "With four weeks of this she will likely see her score improve.",
   ],
   [
+    // An outcome noun with a movement verb and no hedge word at all, so only
+    // the movement clause can catch it.
+    "promise.outcome",
+    "Scores improve once the pacing habit improves, in my experience of it.",
+  ],
+  [
     "reservation.language",
     "I have reserved a seat for her in the Tuesday evening group.",
   ],
