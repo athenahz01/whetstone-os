@@ -178,8 +178,57 @@ const NEW_ATTACKS: [string, string, string][] = [
   ],
 ];
 
+/**
+ * The second audit round. Every one falls inside a topic that already existed,
+ * so each extends that topic's own detection rather than adding a word list
+ * beside it.
+ */
+const ROUND_TWO_ATTACKS: [string, string, string][] = [
+  [
+    "topic.credentials",
+    "an institution referred to without being named",
+    "I have been doing this since my own days at a very selective college.",
+  ],
+  [
+    "topic.subject-offered",
+    "an offer with no boundary, which includes what F-005 excludes",
+    "Whatever section she is weakest in, we can work on it together.",
+  ],
+  [
+    "topic.outcome-attestation",
+    "an outcome attested by other families",
+    "Most families tell me the difference shows up within a month.",
+  ],
+  [
+    "topic.future-state",
+    "an outcome set as an expectation",
+    "You can expect the pacing to click well before the test itself.",
+  ],
+  [
+    "topic.price",
+    "a spend stated as a range with no figure",
+    "Most families spend a few hundred over a term of weekly work.",
+  ],
+  [
+    "topic.draft-terms",
+    "a claim resting on what the published rules explain",
+    "The published rules explain how places are confirmed each year.",
+  ],
+  [
+    // A qualification with no famous name, no ranking and no institution, so
+    // only the degree clause can catch it.
+    "topic.credentials",
+    "a degree named as a subject rather than a place",
+    "Cole earned his degree in classics before he began teaching this work.",
+  ],
+];
+
 describe("topic gate: paraphrase must block", () => {
-  for (const [rule, name, substance] of [...AUDIT_ATTACKS, ...NEW_ATTACKS]) {
+  for (const [rule, name, substance] of [
+    ...AUDIT_ATTACKS,
+    ...NEW_ATTACKS,
+    ...ROUND_TWO_ATTACKS,
+  ]) {
     it(`blocks ${rule} via ${name}`, () => {
       const found = rules(substance);
       expect(found, substance).toContain(rule);
@@ -189,9 +238,13 @@ describe("topic gate: paraphrase must block", () => {
 
   it("covers every hard block with at least one paraphrase attack", () => {
     const covered = new Set(
-      [...AUDIT_ATTACKS, ...NEW_ATTACKS].map(([rule]) => rule),
+      [...AUDIT_ATTACKS, ...NEW_ATTACKS, ...ROUND_TWO_ATTACKS].map(
+        ([rule]) => rule,
+      ),
     );
     for (const rule of [
+      "topic.outcome-attestation",
+      "topic.draft-terms",
       "topic.credentials",
       "topic.wright-cost",
       "topic.scholarship-terms",
@@ -270,7 +323,67 @@ const MUST_PASS: [string, string][] = [
     "the prospect's English described, not offered as a credential",
     "Her English is strong, so I would not spend the hour there at all.",
   ],
+  [
+    // The comprehension and comprehensive family again, on a word that comes
+    // up constantly in copy about uncertainty.
+    "a degree of guesswork is not a degree",
+    "There is a degree of guesswork until I see the actual work she has done.",
+  ],
+  [
+    "an hour invested, with no amount attached",
+    "It is worth investing an hour a week rather than a marathon at the end.",
+  ],
+  [
+    "an award that belongs to the student, not the scholarship",
+    "Her award for the debate season is worth mentioning in the essay itself.",
+  ],
+  [
+    "scheduling that survives the dates topic",
+    "Are you free Tuesday, or would later in the week suit you better?",
+  ],
+  [
+    "a plan across terms, with no price in it",
+    "Across two terms we would move from timing to inference and back again.",
+  ],
+  [
+    // F-007 was added to the register by the owner on 2026-08-27, so the rate
+    // is now a VERIFIED claim and the price topic must let it through.
+    "the rate F-007 verifies",
+    "My rate is $400 per hour in person and $295 per hour online for this.",
+  ],
+  [
+    "the free 30 minutes F-007 verifies, named rather than called a consultation",
+    "The first 30 minutes are free so you can see whether it is worth it.",
+  ],
 ];
+
+/**
+ * An honest refusal names plainly what Cole does not do. VOICE.md asks for it,
+ * and a lint that blocks it teaches the agent to stay vague about scope, which
+ * is the opposite of the goal. Six shapes, all of which must pass.
+ */
+const REFUSALS: string[] = [
+  "I do not tutor SAT Math, so I would not be the right person for that half.",
+  "Chemistry is outside what I do, so I would point you elsewhere entirely.",
+  "SAT Math is not something I take on, so I would say that up front.",
+  "I would not be the right person for the maths section of that test.",
+  "That is outside my four approved subjects on here, so I will be plain.",
+  "I only work on reading and writing, not the quantitative side of it.",
+];
+
+describe("topic gate: an honest refusal must pass", () => {
+  for (const refusal of REFUSALS) {
+    it(`allows the refusal: ${refusal}`, () => {
+      expect(voiceLint(draft(refusal)), refusal).toEqual([]);
+    });
+  }
+
+  it("still blocks the subject when an adversative turns the sentence round", () => {
+    expect(
+      rules("Math is not my main area but I can take a look at it for her."),
+    ).toContain("topic.subject-offered");
+  });
+});
 
 describe("topic gate: legitimate copy must pass", () => {
   for (const [name, substance] of MUST_PASS) {
@@ -372,6 +485,10 @@ describe("the disqualifier is true to the source message", () => {
         "I do not know what grade she is in, which changes the approach",
       ],
       ["format", "you have not said whether you want this online or in person"],
+      [
+        "subject",
+        "you have not told me which subject this is about, which I would need",
+      ],
     ];
     const lead = leadWith(
       "My daughter is a junior and keeps running out of time before the November test. We would prefer online sessions.",

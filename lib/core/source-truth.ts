@@ -73,19 +73,19 @@ const ABSENCE_CLAIMS: [keyof SourceSupplies, RegExp][] = [
   ],
   [
     "subject",
-    /\b(?:you have not said|you did not say|I do not know|without knowing)\b[^.]{0,40}\b(?:which subject|what subject|what area)\b/i,
+    /\b(?:you have not said|you did not say|you have not told me|you have not mentioned|I do not know|without knowing)\b[^.]{0,40}\b(?:which subject|what subject|what area|which section|what she needs help with|what this is about)\b/i,
   ],
   [
     "grade",
-    /\b(?:you have not said|you did not say|I do not know|without knowing)\b[^.]{0,40}\b(?:what (?:grade|year)|which (?:grade|year)|how old)\b/i,
+    /\b(?:you have not said|you did not say|you have not told me|you have not mentioned|I do not know|without knowing)\b[^.]{0,40}\b(?:what (?:grade|year)|which (?:grade|year)|how old)\b/i,
   ],
   [
     "format",
-    /\b(?:you have not said|you did not say|I do not know|without knowing)\b[^.]{0,40}\b(?:online or in person|in person or online|where you|which format)\b/i,
+    /\b(?:you have not said|you did not say|you have not told me|you have not mentioned|I do not know|without knowing)\b[^.]{0,40}\b(?:online or in person|in person or online|where you|which format)\b/i,
   ],
   [
     "nextStep",
-    /\b(?:you have not said|you did not say|I do not know|without knowing)\b[^.]{0,40}\b(?:what you would like|what next step|how you would like)\b/i,
+    /\b(?:you have not said|you did not say|you have not told me|you have not mentioned|I do not know|without knowing)\b[^.]{0,40}\b(?:what you would like|what next step|how you would like)\b/i,
   ],
 ];
 

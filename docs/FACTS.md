@@ -25,6 +25,16 @@ explicitly `BLOCKED` and the workflow avoids it entirely.
 | F-004 | The current Wright public page says no coding prerequisite is required and expects ten to twenty hours per week.                                            | VERIFIED | 2026-08-26 | `https://wrightfellowship.org/` FAQ                                                      |
 | F-005 | Cole is approved on Wyzant for exactly four subjects: College Counseling, English, Essay Writing, SAT Reading. He is not approved for SAT Math or any ACT section. | VERIFIED | 2026-08-26 | Owner-stated, 2026-08-26. Supersedes the archived v1 adapter configuration at `89bcb58`, which predates these approvals and must not be used as the source. |
 | F-006 | The Wright demo day award is $5,000 to the single winning team, to fund the project. | VERIFIED | 2026-08-26 | Live `https://wrightfellowship.org/` ("One team wins $5,000"); agrees with `wright/CLAUDE.md`, `wright/GTM.md`, `wright/FRAMING.md`, `wright/index.html` |
+| F-007 | Cole's tutoring rate is $400 per hour in person and $295 per hour online. A first-time student is offered a free 30 minutes. | VERIFIED | 2026-08-27 | Owner-stated via Athena, 2026-08-27. Same basis as `F-005`. |
+
+### Note on F-007 wording
+
+`F-007` makes the rate and the free 30 minutes safe to state. The **word** is not
+safe: `VOICE.md` bans "consultation" outright, including "free consultation",
+because it is the category word every competitor uses and it prices the hour
+down. Drafts must name the thing directly - "a free 30 minutes to look at one
+real example" - rather than paraphrasing the ban. The fact is verified; the
+phrasing is still governed by `VOICE.md`.
 
 ## Blocked conflicts
 
