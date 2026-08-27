@@ -99,7 +99,7 @@ describe("Wyzant Messages adapter", () => {
     ]);
     expect(readInbox).toHaveBeenCalledWith({
       storageState,
-      inboxUrl: "https://www.wyzant.com/tutor/messaging",
+      inboxUrl: "https://highered.wyzant.com/tutor/messaging",
       headless: true,
       browserFactory: undefined,
     });

@@ -67,10 +67,34 @@ a five-minute schedule.
 Capture Playwright storage state only while signed in to Whetstone's own Wyzant
 account. Store the entire JSON document as the encrypted
 `WYZANT_STORAGE_STATE_JSON` repository secret. Add `INGEST_URL` and the same
-`INGEST_SECRET` used by Vercel as encrypted secrets. The workflow runs every
-15 minutes with up to two minutes of jitter, reads both the direct Messages
-inbox and jobs feed, and never clicks a submit control. The pnpm store and
-Playwright browser directory are cached between runs.
+`INGEST_SECRET` used by Vercel as encrypted secrets. Run `pnpm wyzant:login`
+locally to open a headed browser and create the storage-state file. The helper
+removes every non-`wyzant.com` cookie and origin before writing and prints only
+counts, the feed origin, and the longest-lived persistent cookie expiry. It is
+local-only and must never run in CI. Copy the resulting file into the GitHub
+secret with:
+
+```powershell
+Get-Content playwright/.auth/wyzant-state.json -Raw | Set-Clipboard
+```
+
+The workflow uses the official Playwright `v1.62.1` container, so it does not
+install Chromium or operating-system packages on every run. It runs every 30
+minutes from 07:00 through 23:00 Eastern while EDT is in effect, with up to two
+minutes of jitter, and keeps `workflow_dispatch`. The UTC window drifts one hour
+earlier in winter. The board shows jobs sitting for 5 to 12 hours, so this is
+still much faster than the source changes. The exact cron has 34 invocations a
+day, or about 1,020 billable minutes in a 30-day month if each job stays under
+one billed minute.
+
+Both Wyzant defaults use the observed `highered.wyzant.com` host. The
+authenticated board capture shows a GET filter with Online and In person as
+separate `lesson_type` radio selections, with one selected at a time. The
+captured Online view contains Online inventory only. The adapter therefore
+requests both selections when online work is enabled, applies the configured
+subject and in-person location scope in code, and deduplicates the combined
+inventory by Wyzant native ID. It requests only the In person selection when
+`WYZANT_INCLUDE_ONLINE_JOBS=false`.
 
 For local read-only selector verification, set `WYZANT_STORAGE_STATE_PATH` to a
 gitignored Playwright state file. `pnpm wyzant:capture-board` saves the current
@@ -161,10 +185,13 @@ role, which bypasses RLS, and the Supabase client is used only for
 
 Two rules follow, and both are enforced by `tests/rls-coverage.test.ts`:
 
-1. Every new table enables RLS in the same migration that creates it. Phase 2
-   adds `runs`, `run_steps`, `approvals`, `measurements` and `exceptions`, and
-   all five need it. `approvals` holds human decisions and `exceptions` can hold
-   message fragments, so neither is less sensitive than `leads`.
+1. Every new table enables RLS in the same migration that creates it. The
+   current migration set secures `tutors`, `leads`, `drafts`, `outcomes`,
+   `profiles`, `metrics_daily`, `poll_heartbeats`, `runs`, `run_steps`,
+   `approvals`, `measurements`, `exceptions`, `system_flags`,
+   `research_briefs`, and `outreach_drafts`. Prisma's own
+   `_prisma_migrations` table is secured with an absence-safe migration because
+   Prisma creates it outside this repository's migration set.
 2. No migration grants `anon` a policy back in.
 
 `ENABLE ROW LEVEL SECURITY` on an already-enabled table is a no-op, so the
@@ -176,7 +203,24 @@ A config screen is not evidence. With the deployed anon key, request each table
 and require an empty array:
 
 ```powershell
-$tables = "leads","outcomes","drafts","tutors","profiles","metrics_daily","poll_heartbeats"
+$tables = @(
+  "tutors",
+  "leads",
+  "drafts",
+  "outcomes",
+  "profiles",
+  "metrics_daily",
+  "poll_heartbeats",
+  "runs",
+  "run_steps",
+  "approvals",
+  "measurements",
+  "exceptions",
+  "system_flags",
+  "research_briefs",
+  "outreach_drafts",
+  "_prisma_migrations"
+)
 foreach ($t in $tables) {
   $r = Invoke-RestMethod -Uri "$env:NEXT_PUBLIC_SUPABASE_URL/rest/v1/$t?select=*" `
     -Headers @{ apikey = $env:NEXT_PUBLIC_SUPABASE_ANON_KEY }
@@ -184,10 +228,12 @@ foreach ($t in $tables) {
 }
 ```
 
-Every line must report 0 rows. Read access is the half that has been checked.
-**Anon write and delete are unverified, not proven safe.** Settle them with the
-same probe extended to `POST` and `DELETE`, run against the scratch project the
-restore drill already creates, never against production.
+Every line must report 0 rows. `tests/rls-coverage.test.ts` derives the expected
+list from every `CREATE TABLE` in the migration set plus
+`TABLES_CREATED_OUTSIDE_MIGRATIONS`, then requires this live probe to contain
+exactly the same names. A new table cannot pass CI while remaining absent here.
+Write and delete probes belong against the scratch project the restore drill
+creates, never against production.
 
 ## Backup restore drill
 

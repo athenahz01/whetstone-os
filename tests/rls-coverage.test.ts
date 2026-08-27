@@ -2,6 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 const MIGRATIONS = new URL("../prisma/migrations/", import.meta.url);
+const DEPLOYMENT = new URL("../docs/DEPLOYMENT.md", import.meta.url);
 
 /**
  * Regression lock: every table in `public` is denied to the anon key.
@@ -75,6 +76,16 @@ function securedTables(sql: string): Set<string> {
   );
 }
 
+function documentedLiveProbeTables(deployment: string): string[] {
+  const block = deployment.match(
+    /\$tables\s*=\s*@\(([\s\S]*?)\)\s*\r?\nforeach\s*\(/,
+  )?.[1];
+  if (!block) return [];
+  return [...block.matchAll(/"([A-Za-z_][A-Za-z0-9_]*)"/g)].map((match) =>
+    match[1].toLowerCase(),
+  );
+}
+
 describe("regression lock: anon cannot read any table in public", () => {
   it("enables row level security on every table any migration creates", async () => {
     const sql = await readMigrationSql();
@@ -136,5 +147,16 @@ describe("regression lock: anon cannot read any table in public", () => {
     const sql = await readMigrationSql();
     expect(sql).not.toMatch(/CREATE\s+POLICY/i);
     expect(sql).not.toMatch(/GRANT\s[\s\S]*?\sTO\s+anon\b/i);
+  });
+
+  it("keeps the deployment live probe identical to migration discovery", async () => {
+    const [sql, deployment] = await Promise.all([
+      readMigrationSql(),
+      readFile(DEPLOYMENT, "utf8"),
+    ]);
+    const expected = [
+      ...new Set([...createdTables(sql), ...TABLES_CREATED_OUTSIDE_MIGRATIONS]),
+    ].sort();
+    expect(documentedLiveProbeTables(deployment).sort()).toEqual(expected);
   });
 });

@@ -185,6 +185,16 @@ const NEW_ATTACKS: [string, string, string][] = [
  */
 const ROUND_TWO_ATTACKS: [string, string, string][] = [
   [
+    "topic.scholarship-terms",
+    "the Whetstone award structure with no value word",
+    "The Whetstone award goes to two students.",
+  ],
+  [
+    "topic.price",
+    "a price introduced by the verb invest",
+    "Families invest around three hundred a session.",
+  ],
+  [
     "topic.credentials",
     "an institution referred to without being named",
     "I have been doing this since my own days at a very selective college.",

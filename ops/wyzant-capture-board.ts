@@ -2,11 +2,11 @@ import { writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
 import {
   assertAuthenticatedWyzantFeedUrl,
+  DEFAULT_WYZANT_FEED_URL,
   resolveWyzantStorageState,
 } from "../lib/adapters/wyzant";
 
-const feedUrl =
-  process.env.WYZANT_FEED_URL?.trim() || "https://www.wyzant.com/tutor/jobs";
+const feedUrl = process.env.WYZANT_FEED_URL?.trim() || DEFAULT_WYZANT_FEED_URL;
 const outputPath =
   process.env.WYZANT_CAPTURE_OUTPUT?.trim() || "playwright/.auth/board.html";
 const browser = await chromium.launch({ headless: true });

@@ -2,7 +2,11 @@ name: Wyzant poll
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    # 07:00 through 23:00 Eastern while EDT is in effect. UTC does not follow
+    # daylight saving, so this window drifts one hour earlier in winter. Jobs
+    # sit on the board for 5 to 12 hours, so 30 minutes is still much faster
+    # than the source changes.
+    - cron: "0,30 0-3,11-23 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -12,6 +16,7 @@ concurrency:
 jobs:
   poll:
     runs-on: ubuntu-latest
+    container: mcr.microsoft.com/playwright:v1.62.1
     timeout-minutes: 5
     permissions:
       contents: read
@@ -24,13 +29,7 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-      - name: Cache Playwright browser
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
       - name: Apply schedule jitter
         run: sleep $((RANDOM % 121))
       - name: Poll and ingest
@@ -38,7 +37,7 @@ jobs:
         env:
           WYZANT_STORAGE_STATE_JSON: ${{ secrets.WYZANT_STORAGE_STATE_JSON }}
           WYZANT_FEED_URL: ${{ vars.WYZANT_FEED_URL }}
-          WYZANT_MESSAGES_URL: https://www.wyzant.com/tutor/messaging
+          WYZANT_MESSAGES_URL: https://highered.wyzant.com/tutor/messaging
           WYZANT_TARGET_SUBJECTS: College Counseling|English|Essay Writing|SAT Reading
           WYZANT_TARGET_LOCATIONS: Manhattan|New York, NY
           WYZANT_INCLUDE_ONLINE_JOBS: "true"

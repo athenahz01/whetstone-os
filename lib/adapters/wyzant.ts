@@ -8,6 +8,9 @@ import {
 import { stableLeadId } from "../core/stable-id";
 import type { AdapterException, ChannelAdapter, Lead } from "../core/types";
 
+export const DEFAULT_WYZANT_FEED_URL = "https://highered.wyzant.com/tutor/jobs";
+export type WyzantLessonType = "online" | "in_person";
+
 export interface WyzantAdapterOptions {
   storageState: BrowserContextOptions["storageState"];
   feedUrl: string;
@@ -47,30 +50,26 @@ export class WyzantAdapter implements ChannelAdapter {
         storageState: this.options.storageState,
       });
       const page = await context.newPage();
-      await page.goto(this.options.feedUrl, {
-        waitUntil: "domcontentloaded",
-        timeout: 45_000,
-      });
-      if (!isOfficialWyzantUrl(page.url())) {
-        throw new Error(
-          "Wyzant session navigated outside the official domain.",
-        );
-      }
-      assertAuthenticatedWyzantFeedUrl(page.url());
-      if ((await page.locator('input[type="password"]').count()) > 0) {
-        throw new WyzantAuthenticationError(
-          "Wyzant displayed a sign-in form instead of the tutor jobs feed.",
-        );
-      }
-      const jobs = await extractJobs(page, {
-        onMalformedJob: ({ nativeId, reason }) => {
-          this.extractionExceptions.push({
-            kind: "WyzantJobMalformed",
-            severity: "warning",
-            message: `${nativeId}: ${reason}`,
+      const jobs = await collectConfiguredWyzantJobs(
+        this.options,
+        async (url, lessonType) => {
+          await page.goto(url, {
+            waitUntil: "domcontentloaded",
+            timeout: 45_000,
+          });
+          await assertAuthenticatedWyzantPage(page);
+          return extractJobs(page, {
+            lessonType,
+            onMalformedJob: ({ nativeId, reason }) => {
+              this.extractionExceptions.push({
+                kind: "WyzantJobMalformed",
+                severity: "warning",
+                message: `${nativeId}: ${reason}`,
+              });
+            },
           });
         },
-      });
+      );
       return jobs.map((job) => ({
         id: stableLeadId(this.name, job.nativeId),
         channel: this.name,
@@ -81,7 +80,7 @@ export class WyzantAdapter implements ChannelAdapter {
         url: job.url,
         postedAt: job.postedAt,
         tutorId: this.options.tutorId,
-        raw: { nativeId: job.nativeId },
+        raw: { nativeId: job.nativeId, lessonType: job.lessonType },
       }));
     } finally {
       await context?.close().catch(() => undefined);
@@ -112,6 +111,7 @@ export interface WyzantJobSnapshot {
   location?: string;
   url: string;
   postedAt: string;
+  lessonType?: WyzantLessonType;
 }
 
 export interface WyzantExtractionFailure {
@@ -121,6 +121,7 @@ export interface WyzantExtractionFailure {
 
 export interface ExtractJobsOptions {
   now?: number;
+  lessonType?: WyzantLessonType;
   onMalformedJob?: (failure: WyzantExtractionFailure) => void;
 }
 
@@ -243,6 +244,7 @@ export async function extractJobs(
       jobs.push({
         ...job,
         postedAt: parseWyzantPostedAt(job.postedAt, options.now),
+        ...(options.lessonType ? { lessonType: options.lessonType } : {}),
       });
     } catch (error) {
       options.onMalformedJob?.({
@@ -255,6 +257,97 @@ export async function extractJobs(
     }
   }
   return jobs;
+}
+
+async function assertAuthenticatedWyzantPage(page: Page): Promise<void> {
+  if (!isOfficialWyzantUrl(page.url())) {
+    throw new Error("Wyzant session navigated outside the official domain.");
+  }
+  assertAuthenticatedWyzantFeedUrl(page.url());
+  if ((await page.locator('input[type="password"]').count()) > 0) {
+    throw new WyzantAuthenticationError(
+      "Wyzant displayed a sign-in form instead of the tutor jobs feed.",
+    );
+  }
+}
+
+export function configuredWyzantLessonTypes(
+  includeOnlineJobs: boolean,
+): WyzantLessonType[] {
+  return includeOnlineJobs ? ["online", "in_person"] : ["in_person"];
+}
+
+export async function collectConfiguredWyzantJobs(
+  options: Pick<
+    WyzantAdapterOptions,
+    "feedUrl" | "targetSubjects" | "targetLocations" | "includeOnlineJobs"
+  >,
+  readView: (
+    url: string,
+    lessonType: WyzantLessonType,
+  ) => Promise<WyzantJobSnapshot[]>,
+): Promise<WyzantJobSnapshot[]> {
+  const jobs: WyzantJobSnapshot[] = [];
+  for (const lessonType of configuredWyzantLessonTypes(
+    options.includeOnlineJobs,
+  )) {
+    jobs.push(
+      ...(await readView(
+        wyzantFeedUrlForLessonType(options.feedUrl, lessonType),
+        lessonType,
+      )),
+    );
+  }
+  return dedupeWyzantJobs(filterWyzantJobs(jobs, options));
+}
+
+export function wyzantFeedUrlForLessonType(
+  feedUrl: string,
+  lessonType: WyzantLessonType,
+): string {
+  const url = officialWyzantUrl(feedUrl);
+  url.searchParams.set("subject_id", "-1");
+  url.searchParams.set("lesson_type", lessonType);
+  return url.toString();
+}
+
+export function dedupeWyzantJobs(
+  jobs: readonly WyzantJobSnapshot[],
+): WyzantJobSnapshot[] {
+  return [...new Map(jobs.map((job) => [job.nativeId, job])).values()];
+}
+
+export function filterWyzantJobs(
+  jobs: readonly WyzantJobSnapshot[],
+  options: Pick<
+    WyzantAdapterOptions,
+    "targetSubjects" | "targetLocations" | "includeOnlineJobs"
+  >,
+): WyzantJobSnapshot[] {
+  const subjects = options.targetSubjects.map(normalizeScopeValue);
+  const locations = options.targetLocations.map(normalizeScopeValue);
+  return jobs.filter((job) => {
+    if (!job.subject || !subjects.includes(normalizeScopeValue(job.subject))) {
+      return false;
+    }
+    if (isOnlineWyzantJob(job)) return options.includeOnlineJobs;
+    if (!job.location) return false;
+    const actual = normalizeScopeValue(job.location);
+    return locations.some(
+      (target) => actual === target || actual.startsWith(`${target},`),
+    );
+  });
+}
+
+function isOnlineWyzantJob(job: WyzantJobSnapshot): boolean {
+  return (
+    job.lessonType === "online" ||
+    /\b(?:online|remote)\b/i.test(job.location ?? "")
+  );
+}
+
+function normalizeScopeValue(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 export function parseWyzantPostedAt(
@@ -355,9 +448,7 @@ export function resolveWyzantStorageState(
 export function createWyzantAdapterFromEnv(): WyzantAdapter {
   return new WyzantAdapter({
     storageState: resolveWyzantStorageState(),
-    feedUrl:
-      process.env.WYZANT_FEED_URL?.trim() ||
-      "https://www.wyzant.com/tutor/jobs",
+    feedUrl: process.env.WYZANT_FEED_URL?.trim() || DEFAULT_WYZANT_FEED_URL,
     targetSubjects: split(
       process.env.WYZANT_TARGET_SUBJECTS,
       "College Counseling|English|Essay Writing|SAT Reading",

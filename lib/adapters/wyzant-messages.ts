@@ -13,7 +13,8 @@ import {
   WyzantAuthenticationError,
 } from "./wyzant";
 
-const DEFAULT_INBOX_URL = "https://www.wyzant.com/tutor/messaging";
+export const DEFAULT_WYZANT_MESSAGES_URL =
+  "https://highered.wyzant.com/tutor/messaging";
 
 export interface WyzantMessageSnapshot {
   threadId: string;
@@ -229,14 +230,16 @@ export class WyzantMessagesAdapter implements ChannelAdapter {
   private readonly readInbox: InboxReader;
 
   constructor(private readonly options: WyzantMessagesAdapterOptions) {
-    assertAuthenticatedWyzantMessagesUrl(options.inboxUrl ?? DEFAULT_INBOX_URL);
+    assertAuthenticatedWyzantMessagesUrl(
+      options.inboxUrl ?? DEFAULT_WYZANT_MESSAGES_URL,
+    );
     this.readInbox = options.readInbox ?? readOperatorWyzantMessagesInbox;
   }
 
   async poll(): Promise<Lead[]> {
     const snapshots = await this.readInbox({
       storageState: this.options.storageState,
-      inboxUrl: this.options.inboxUrl ?? DEFAULT_INBOX_URL,
+      inboxUrl: this.options.inboxUrl ?? DEFAULT_WYZANT_MESSAGES_URL,
       headless: this.options.headless ?? true,
       browserFactory: this.options.browserFactory,
     });
@@ -258,7 +261,8 @@ export class WyzantMessagesAdapter implements ChannelAdapter {
 export function createWyzantMessagesAdapterFromEnv(): WyzantMessagesAdapter {
   return new WyzantMessagesAdapter({
     storageState: resolveWyzantStorageState(),
-    inboxUrl: process.env.WYZANT_MESSAGES_URL?.trim() || DEFAULT_INBOX_URL,
+    inboxUrl:
+      process.env.WYZANT_MESSAGES_URL?.trim() || DEFAULT_WYZANT_MESSAGES_URL,
     tutorId: process.env.WYZANT_TUTOR_ID?.trim() || undefined,
     headless: process.env.WYZANT_HEADLESS !== "false",
   });

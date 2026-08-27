@@ -1,13 +1,13 @@
 import { chromium } from "playwright";
 import {
   assertAuthenticatedWyzantFeedUrl,
+  DEFAULT_WYZANT_FEED_URL,
   extractJobs,
   parseWyzantPostedAt,
   resolveWyzantStorageState,
 } from "../lib/adapters/wyzant";
 
-const feedUrl =
-  process.env.WYZANT_FEED_URL?.trim() || "https://www.wyzant.com/tutor/jobs";
+const feedUrl = process.env.WYZANT_FEED_URL?.trim() || DEFAULT_WYZANT_FEED_URL;
 const browser = await chromium.launch({
   headless: process.env.WYZANT_HEADLESS !== "false",
 });

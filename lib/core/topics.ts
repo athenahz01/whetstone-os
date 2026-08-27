@@ -33,7 +33,7 @@ export interface TopicIssue {
  * award, and a prize is not a price.
  */
 export const COST_TOPIC =
-  /\b(?:tuition|cost|costs|costing|fee|fees|price|prices|priced|pricing|hourly rate|charges?|deposit|investment|expense|outlay|budget|out of pocket|per hour|an hour|runs to|comes to|works out to|sets you back|spend|spends|spent|spending|pay|pays|paid|paying)\b/i;
+  /\b(?:tuition|cost|costs|costing|fee|fees|price|prices|priced|pricing|hourly rate|charges?|deposit|investment|invest|invests|invested|investing|expense|outlay|budget|out of pocket|per hour|an hour|runs to|comes to|works out to|sets you back|spend|spends|spent|spending|pay|pays|paid|paying)\b/i;
 
 /**
  * A qualitative price claim needs no figure to be a price claim. "We are not
@@ -306,6 +306,9 @@ export function topicGate(
     const value =
       AMOUNT_TOPIC.exec(sentence) ??
       /\b(?:worth|value|valued|up to|covers?|full|partial|how much|money|life[-\s]changing|substantial|significant|meaningful sum)\b/i.exec(
+        sentence,
+      ) ??
+      /\b(?:goes? to|awarded? to|available to|recipients?|winners?|students?|families?|teams?|places?|spots?|seats?)\b/i.exec(
         sentence,
       );
     if (award && !theirs && value && !everyFigureSupported(sentence, facts)) {
