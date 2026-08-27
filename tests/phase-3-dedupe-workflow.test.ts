@@ -6,6 +6,7 @@ import { readQualification } from "../lib/core/qualification";
 import { createQualifyWorkflow } from "../lib/workflows/s1-qualify";
 import { runWorkflow } from "../lib/core/workflow";
 import { MemoryRunStore } from "./run-helpers";
+import type { ChannelAdapter } from "../lib/core/types";
 
 const consent = {
   recordedAt: "2026-01-10T12:00:00.000Z",
@@ -42,6 +43,49 @@ describe("Phase 3 cross-adapter dedupe and workflow", () => {
     expect(merged.deduped).toBe(1);
     expect(merged.leads[0].raw).toMatchObject({
       duplicateSourceIds: [second[0].id],
+      duplicateProspects: [
+        {
+          id: second[0].id,
+          subject: "English",
+          text: "Grade 10 student needs English tutoring this semester.",
+        },
+      ],
+    });
+  });
+
+  it("keeps two students who share one parent email and links both prospects", async () => {
+    const leads = await new ReengagementAdapter([
+      {
+        id: "maya-junior",
+        name: "Parent re: Maya (junior)",
+        email: "parent@example.test",
+        subject: "College Counseling",
+        notes: "Grade 11 student Maya needs help building a college list.",
+        consent,
+      },
+      {
+        id: "theo-sophomore",
+        name: "Parent re: Theo (sophomore)",
+        email: "parent@example.test",
+        subject: "English",
+        notes: "Grade 10 student Theo needs help with analytical essays.",
+        consent,
+      },
+    ]).poll();
+
+    const result = dedupeAcrossAdapters(leads);
+
+    expect(result.leads).toHaveLength(2);
+    expect(result.deduped).toBe(0);
+    expect(result.leads.map((lead) => lead.text)).toEqual([
+      "Grade 11 student Maya needs help building a college list.",
+      "Grade 10 student Theo needs help with analytical essays.",
+    ]);
+    expect(result.leads[0].raw).toMatchObject({
+      relatedProspectIds: [leads[1].id],
+    });
+    expect(result.leads[1].raw).toMatchObject({
+      relatedProspectIds: [leads[0].id],
     });
   });
 
@@ -89,5 +133,42 @@ describe("Phase 3 cross-adapter dedupe and workflow", () => {
         }),
       ]),
     );
+  });
+
+  it("records a named non-fatal adapter exception while preserving the run", async () => {
+    const store = new MemoryRunStore();
+    const adapter: ChannelAdapter = {
+      name: "fixture-with-one-bad-card",
+      async poll() {
+        return [];
+      },
+      async send() {
+        return {};
+      },
+      drainExceptions() {
+        return [
+          {
+            kind: "WyzantJobMalformed",
+            severity: "warning",
+            message:
+              "8394201: Wyzant job is missing a recognizable posted time.",
+          },
+        ];
+      },
+    };
+
+    const result = await runWorkflow(
+      createQualifyWorkflow({ adapters: [adapter] }),
+      { store, trigger: "malformed-card-probe" },
+    );
+
+    expect(result.status).toBe("succeeded");
+    expect(store.exceptions).toEqual([
+      expect.objectContaining({
+        kind: "WyzantJobMalformed",
+        severity: "warning",
+        message: "8394201: Wyzant job is missing a recognizable posted time.",
+      }),
+    ]);
   });
 });

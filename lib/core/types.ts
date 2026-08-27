@@ -49,4 +49,12 @@ export interface ChannelAdapter {
   poll(): Promise<Lead[]>;
   /** Record + prefill an approved reply. MUST NOT auto-submit to the platform. */
   send(lead: Lead, approvedMessage: string): Promise<{ prefillUrl?: string }>;
+  /** Optional non-fatal poll failures for the workflow exception ledger. */
+  drainExceptions?(): AdapterException[];
+}
+
+export interface AdapterException {
+  kind: string;
+  severity: "warning" | "critical";
+  message: string;
 }

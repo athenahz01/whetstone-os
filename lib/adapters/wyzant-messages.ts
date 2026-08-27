@@ -9,7 +9,7 @@ import { stableLeadId } from "../core/stable-id";
 import type { ChannelAdapter, Lead } from "../core/types";
 import {
   officialWyzantUrl,
-  parseWyzantStorageState,
+  resolveWyzantStorageState,
   WyzantAuthenticationError,
 } from "./wyzant";
 
@@ -257,7 +257,7 @@ export class WyzantMessagesAdapter implements ChannelAdapter {
 
 export function createWyzantMessagesAdapterFromEnv(): WyzantMessagesAdapter {
   return new WyzantMessagesAdapter({
-    storageState: parseWyzantStorageState(),
+    storageState: resolveWyzantStorageState(),
     inboxUrl: process.env.WYZANT_MESSAGES_URL?.trim() || DEFAULT_INBOX_URL,
     tutorId: process.env.WYZANT_TUTOR_ID?.trim() || undefined,
     headless: process.env.WYZANT_HEADLESS !== "false",

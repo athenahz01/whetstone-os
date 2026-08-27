@@ -57,6 +57,9 @@ export function createQualifyWorkflow(
           for (const adapter of options.adapters) {
             try {
               rawLeads.push(...(await adapter.poll()));
+              for (const exception of adapter.drainExceptions?.() ?? []) {
+                await context.recordException(exception);
+              }
             } catch (error) {
               await context.recordException({
                 kind: "AdapterPollFailed",

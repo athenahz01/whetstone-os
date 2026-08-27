@@ -72,6 +72,12 @@ account. Store the entire JSON document as the encrypted
 inbox and jobs feed, and never clicks a submit control. The pnpm store and
 Playwright browser directory are cached between runs.
 
+For local read-only selector verification, set `WYZANT_STORAGE_STATE_PATH` to a
+gitignored Playwright state file. `pnpm wyzant:capture-board` saves the current
+board HTML under `playwright/.auth/board.html` by default, and
+`pnpm wyzant:diagnose` parses the live board without calling production ingest.
+Never move the raw capture or storage state outside the gitignored auth folder.
+
 Every fully successful poll writes the `wyzant-github-actions` heartbeat through
 the ingest request, even when it finds zero leads. Vercel checks that heartbeat
 on its scheduled tick. After 45 minutes without a successful poll it sends one
