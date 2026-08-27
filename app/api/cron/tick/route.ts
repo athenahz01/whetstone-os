@@ -2,7 +2,7 @@ import { createScheduledAdapters } from "../../../../lib/adapters";
 import { prisma } from "../../../../lib/core/db";
 import { checkPollHeartbeat } from "../../../../lib/core/heartbeat";
 import { createAlertsFromEnv } from "../../../../lib/core/runtime";
-import { runIngest } from "../../../../lib/core/scheduler";
+import { runProspecting } from "../../../../lib/core/scheduler";
 import { secretMatches } from "../../../../lib/http/secret";
 
 export const runtime = "nodejs";
@@ -31,10 +31,31 @@ export async function GET(request: Request) {
       heartbeat,
     });
   }
-  const guarded = await runIngest({ adapters, trigger: "vercel-cron", alerts });
-  if (!guarded.started) {
+  const prospecting = await runProspecting({
+    adapters,
+    trigger: "vercel-cron",
+    alerts,
+  });
+  if (!prospecting.qualification.started) {
     return Response.json(
-      { ok: false, refused: guarded.kind, message: guarded.message, heartbeat },
+      {
+        ok: false,
+        refused: prospecting.qualification.kind,
+        message: prospecting.qualification.message,
+        heartbeat,
+      },
+      { status: 503 },
+    );
+  }
+  const guarded = prospecting.ingest;
+  if (!guarded?.started) {
+    return Response.json(
+      {
+        ok: false,
+        refused: guarded?.kind ?? "QualificationFailed",
+        message: guarded?.message ?? "Qualification did not reach ingestion.",
+        heartbeat,
+      },
       { status: 503 },
     );
   }
@@ -45,6 +66,7 @@ export async function GET(request: Request) {
   };
   return Response.json({
     ok: guarded.run.status === "succeeded",
+    qualificationRunId: prospecting.qualification.run.runId,
     runId: guarded.run.runId,
     status: guarded.run.status,
     ...result,

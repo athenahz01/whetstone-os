@@ -9,7 +9,10 @@ import { PrismaRunStore } from "./run-store";
 import { createGrowthEngine } from "./runtime";
 import type { AlertService } from "./alerts";
 import type { ChannelAdapter } from "./types";
+import type { QualificationBatch } from "../workflows/s1-qualify";
 import { createIngestWorkflow } from "../workflows/s1-ingest";
+import { createQualifyWorkflow } from "../workflows/s1-qualify";
+import { BatchAdapter } from "../adapters/batch";
 import { registerWorkflow } from "./registry";
 
 /**
@@ -36,4 +39,40 @@ export async function runIngest(input: {
     limits: limitsFromEnv(),
     trigger: input.trigger,
   });
+}
+
+export interface ProspectingRunResult {
+  qualification: GuardedRunResult;
+  ingest?: GuardedRunResult;
+}
+
+/**
+ * Phase 3's two recorded workflows. Qualification owns polling, cross-channel
+ * dedupe, and the ICP evidence. Only those enriched leads cross into ingest,
+ * so every persisted prospect carries its verdict in `raw.qualification`.
+ */
+export async function runProspecting(input: {
+  adapters: ChannelAdapter[];
+  trigger: string;
+  alerts?: AlertService;
+}): Promise<ProspectingRunResult> {
+  const store = new PrismaRunStore(prisma);
+  const flags = new PrismaFlagStore(prisma);
+  const limits = limitsFromEnv();
+  const qualification = await runGuardedWorkflow(
+    registerWorkflow(createQualifyWorkflow({ adapters: input.adapters })),
+    { store, flags, limits, trigger: input.trigger },
+  );
+  if (!qualification.started || qualification.run.status !== "succeeded") {
+    return { qualification };
+  }
+  const batch = qualification.run.outputs.get(
+    "poll-dedupe-qualify",
+  ) as QualificationBatch;
+  const ingest = await runIngest({
+    adapters: [new BatchAdapter(batch.leads)],
+    trigger: `${input.trigger}:qualified`,
+    alerts: input.alerts,
+  });
+  return { qualification, ingest };
 }

@@ -54,21 +54,25 @@ export class WyzantAdapter implements ChannelAdapter {
           "Wyzant session navigated outside the official domain.",
         );
       }
+      assertAuthenticatedWyzantFeedUrl(page.url());
+      if ((await page.locator('input[type="password"]').count()) > 0) {
+        throw new WyzantAuthenticationError(
+          "Wyzant displayed a sign-in form instead of the tutor jobs feed.",
+        );
+      }
       const jobs = await extractJobs(page);
-      return jobs
-        .filter((job) => this.isTarget(job))
-        .map((job) => ({
-          id: stableLeadId(this.name, job.nativeId),
-          channel: this.name,
-          author: "Wyzant learner",
-          text: job.text,
-          subject: job.subject,
-          location: job.location,
-          url: job.url,
-          postedAt: job.postedAt,
-          tutorId: this.options.tutorId,
-          raw: { nativeId: job.nativeId },
-        }));
+      return jobs.map((job) => ({
+        id: stableLeadId(this.name, job.nativeId),
+        channel: this.name,
+        author: job.author,
+        text: job.text,
+        subject: job.subject,
+        location: job.location,
+        url: job.url,
+        postedAt: job.postedAt,
+        tutorId: this.options.tutorId,
+        raw: { nativeId: job.nativeId },
+      }));
     } finally {
       await context?.close().catch(() => undefined);
       await browser.close().catch(() => undefined);
@@ -82,26 +86,11 @@ export class WyzantAdapter implements ChannelAdapter {
     }
     return { prefillUrl: lead.url };
   }
-
-  private isTarget(job: ScrapedJob): boolean {
-    const subject = `${job.subject ?? ""} ${job.text}`.toLowerCase();
-    const subjectMatch = this.options.targetSubjects.some((target) =>
-      subject.includes(target.toLowerCase()),
-    );
-    const location = (job.location ?? "").toLowerCase();
-    const online = /\bonline\b|\bremote\b/.test(location);
-    const locationMatch = this.options.targetLocations.some((target) =>
-      location.includes(target.toLowerCase()),
-    );
-    return (
-      subjectMatch &&
-      (locationMatch || (online && this.options.includeOnlineJobs))
-    );
-  }
 }
 
-interface ScrapedJob {
+export interface WyzantJobSnapshot {
   nativeId: string;
+  author: string;
   text: string;
   subject?: string;
   location?: string;
@@ -109,33 +98,106 @@ interface ScrapedJob {
   postedAt: string;
 }
 
-async function extractJobs(page: Page): Promise<ScrapedJob[]> {
+export async function extractJobs(page: Page): Promise<WyzantJobSnapshot[]> {
   const raw = await page
-    .locator("a[href*='/tutoring-job/']")
+    .locator("a[href*='/tutor/jobs/'], a[href*='/tutoring-job/']")
     .evaluateAll((links) =>
-      links.map((link) => {
+      links.flatMap((link) => {
         const anchor = link as HTMLAnchorElement;
         const card =
-          anchor.closest("article, li, [class*='job'], [class*='card']") ??
-          anchor;
+          anchor.closest(
+            "article, li, [data-testid*='job'], [data-job-id], [class*='job'], [class*='card']",
+          ) ?? anchor;
         const text = (card.textContent ?? "").replace(/\s+/g, " ").trim();
-        const href = anchor.href;
-        const id = href.match(/tutoring-job\/(\d+)/i)?.[1] ?? href;
+        const href = new URL(anchor.href, window.location.href).toString();
+        const id =
+          card.getAttribute("data-job-id") ||
+          new URL(href).searchParams.get("jobId") ||
+          new URL(href).searchParams.get("id") ||
+          new URL(href).pathname.split("/").filter(Boolean).at(-1) ||
+          href;
         const subject =
           card
-            .querySelector("[class*='subject'], h2, h3")
-            ?.textContent?.trim() || undefined;
+            .querySelector(
+              "[data-testid*='subject'], [class*='subject'], h2, h3, h4",
+            )
+            ?.textContent?.replace(/\s+/g, " ")
+            .trim() ||
+          anchor.textContent?.replace(/\s+/g, " ").trim() ||
+          undefined;
         const location =
-          card.querySelector("[class*='location']")?.textContent?.trim() ||
+          card
+            .querySelector("[data-testid*='location'], [class*='location']")
+            ?.textContent?.replace(/\s+/g, " ")
+            .trim() ||
           text.match(/(?:Online|Remote|[A-Za-z ]+,\s*[A-Z]{2})/)?.[0];
-        return { nativeId: id, text, subject, location, url: href };
+        const description =
+          card
+            .querySelector(
+              "[data-testid*='description'], [class*='description'], p",
+            )
+            ?.textContent?.replace(/\s+/g, " ")
+            .trim() || text;
+        const author =
+          card
+            .querySelector("[data-testid*='author'], [class*='author']")
+            ?.textContent?.replace(/\s+/g, " ")
+            .trim() ||
+          text
+            .match(
+              /posted\s+by\s+(.+?)(?:\s+\d+\s+(?:minute|hour|day|week)|$)/i,
+            )?.[1]
+            ?.trim() ||
+          "Wyzant learner";
+        const time = card.querySelector("time");
+        const postedAt =
+          time?.getAttribute("datetime") ||
+          text.match(
+            /(?:just now|yesterday|\d+\s+(?:minute|hour|day|week)s?\s+ago)/i,
+          )?.[0] ||
+          "";
+        return text && subject
+          ? [
+              {
+                nativeId: id,
+                author,
+                text: description,
+                subject,
+                location,
+                url: href,
+                postedAt,
+              },
+            ]
+          : [];
       }),
     );
 
-  const now = new Date().toISOString();
   return raw
     .filter((job) => isOfficialWyzantUrl(job.url) && job.text.length > 0)
-    .map((job) => ({ ...job, postedAt: now }));
+    .map((job) => ({
+      ...job,
+      postedAt: parseWyzantPostedAt(job.postedAt),
+    }));
+}
+
+export function parseWyzantPostedAt(
+  value: string,
+  now: number = Date.now(),
+): string {
+  const absolute = Date.parse(value);
+  if (Number.isFinite(absolute)) return new Date(absolute).toISOString();
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "just now") return new Date(now).toISOString();
+  if (normalized.includes("yesterday"))
+    return new Date(now - 86_400_000).toISOString();
+  const relative = normalized.match(/(\d+)\s*(minute|hour|day|week)s?\s+ago/);
+  if (!relative) {
+    throw new Error("Wyzant job is missing a recognizable posted time.");
+  }
+  const minutes = { minute: 1, hour: 60, day: 1_440, week: 10_080 }[
+    relative[2] as "minute" | "hour" | "day" | "week"
+  ];
+  return new Date(now - Number(relative[1]) * minutes * 60_000).toISOString();
 }
 
 export function isOfficialWyzantUrl(value: string): boolean {
@@ -155,6 +217,20 @@ export function officialWyzantUrl(value: string): URL {
     throw new Error("Wyzant URL must use an official HTTPS origin.");
   }
   return new URL(value);
+}
+
+export function assertAuthenticatedWyzantFeedUrl(value: string): void {
+  const url = officialWyzantUrl(value);
+  if (url.pathname.startsWith("/login")) {
+    throw new WyzantAuthenticationError(
+      "The operator-owned Wyzant session is expired.",
+    );
+  }
+  if (!url.pathname.startsWith("/tutor/jobs")) {
+    throw new WyzantAuthenticationError(
+      "Wyzant did not remain on the authenticated tutor jobs feed.",
+    );
+  }
 }
 
 export function parseWyzantStorageState(

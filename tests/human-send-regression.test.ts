@@ -2,6 +2,9 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { EmailAdapter } from "../lib/adapters/email";
 import { WyzantAdapter } from "../lib/adapters/wyzant";
+import { CounselorsAdapter } from "../lib/adapters/counselors";
+import { ReengagementAdapter } from "../lib/adapters/reengagement";
+import { ReferralsAdapter } from "../lib/adapters/referrals";
 import { lead } from "./helpers";
 
 describe("regression lock: no automatic submission", () => {
@@ -35,11 +38,49 @@ describe("regression lock: no automatic submission", () => {
       /^mailto:/,
     );
 
-    const source = await readFile(
-      new URL("../lib/adapters/wyzant.ts", import.meta.url),
-      "utf8",
+    const consent = {
+      recordedAt: "2026-01-10T12:00:00.000Z",
+      source: "Signup checkbox",
+      scope: "Email follow-up",
+    };
+    const adapters = [
+      new ReengagementAdapter([
+        { name: "Sample", email: "sample@example.test", consent },
+      ]),
+      new ReferralsAdapter([
+        {
+          name: "Sample partner",
+          email: "partner@example.test",
+          contactType: "professional_partner" as const,
+          publicSourceUrl: "https://school.example.test/team",
+        },
+      ]),
+      new CounselorsAdapter([
+        {
+          name: "Sample counselor",
+          email: "counselor@example.test",
+          role: "Counselor",
+          organization: "Sample School",
+          publicSourceUrl: "https://school.example.test/team",
+        },
+      ]),
+    ];
+    for (const adapter of adapters) {
+      const [contact] = await adapter.poll();
+      expect(
+        (await adapter.send(contact, "Approved by a person")).prefillUrl,
+      ).toMatch(/^mailto:/);
+    }
+
+    const sources = await Promise.all(
+      ["wyzant.ts", "reengagement.ts", "referrals.ts", "counselors.ts"].map(
+        (file) =>
+          readFile(new URL(`../lib/adapters/${file}`, import.meta.url), "utf8"),
+      ),
     );
+    const source = sources.join("\n");
     expect(source).not.toMatch(/\.click\s*\(/);
-    expect(source).not.toMatch(/auto.?submit/i);
+    expect(source).not.toMatch(/\bfetch\s*\(/);
+    expect(source).not.toMatch(/\.(sendMail|post)\s*\(/);
   });
 });

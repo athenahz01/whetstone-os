@@ -3,6 +3,9 @@ import { BatchAdapter } from "../lib/adapters/batch";
 import { EmailAdapter } from "../lib/adapters/email";
 import { WyzantAdapter } from "../lib/adapters/wyzant";
 import { WyzantMessagesAdapter } from "../lib/adapters/wyzant-messages";
+import { CounselorsAdapter } from "../lib/adapters/counselors";
+import { ReengagementAdapter } from "../lib/adapters/reengagement";
+import { ReferralsAdapter } from "../lib/adapters/referrals";
 import type { ChannelAdapter } from "../lib/core/types";
 import { lead } from "./helpers";
 
@@ -13,7 +16,7 @@ function expectAdapterContract(adapter: ChannelAdapter, expectedName: string) {
 }
 
 describe("channel adapter contracts", () => {
-  it("keeps email, Wyzant, and batch ingestion behind one interface", () => {
+  it("keeps every production channel behind one interface", () => {
     expectAdapterContract(
       new EmailAdapter({
         host: "imap.example.test",
@@ -47,5 +50,8 @@ describe("channel adapter contracts", () => {
       "wyzant-messages",
     );
     expectAdapterContract(new BatchAdapter([lead()]), "ingest");
+    expectAdapterContract(new ReengagementAdapter([]), "reengagement");
+    expectAdapterContract(new ReferralsAdapter([]), "referrals");
+    expectAdapterContract(new CounselorsAdapter([]), "counselors");
   });
 });

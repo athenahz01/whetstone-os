@@ -22,6 +22,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "wyzant:poll": "tsx ops/wyzant-poll.ts",
+    "wyzant:diagnose": "tsx ops/wyzant-diagnose.ts",
     "restore:verify": "tsx ops/verify-restore.ts"
   },
   "dependencies": {

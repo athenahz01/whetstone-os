@@ -13,6 +13,22 @@ export interface Lead {
   raw?: unknown;
 }
 
+export type QualificationVerdict =
+  "icp_pass" | "icp_fail" | "out_of_scope" | "needs_human_review";
+
+export interface QualificationEvidence {
+  ref: string;
+  observation: string;
+}
+
+export interface QualificationResult {
+  verdict: QualificationVerdict;
+  rationale: string;
+  evidence: QualificationEvidence[];
+  confidence: number;
+  contextHash: string;
+}
+
 export interface Draft {
   leadId: string;
   tutorId: string;

@@ -12,6 +12,11 @@ describe("scheduled Wyzant poll reliability", () => {
     expect(workflow).toContain("uses: actions/cache@v4");
     expect(workflow).toContain("path: ~/.cache/ms-playwright");
     expect(workflow).toContain("sleep $((RANDOM % 121))");
+    expect(workflow).toContain(
+      "WYZANT_TARGET_SUBJECTS: College Counseling|English|Essay Writing|SAT Reading",
+    );
+    expect(workflow).toContain('WYZANT_INCLUDE_ONLINE_JOBS: "true"');
+    expect(workflow).not.toMatch(/WYZANT_TARGET_SUBJECTS:.*ACT/);
     expect(workflow).not.toContain('cron: "*/5 * * * *"');
   });
 

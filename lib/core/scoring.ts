@@ -1,4 +1,5 @@
 import type { Lead } from "./types";
+import { readQualification } from "./qualification";
 
 const highIntentTerms = [
   "looking for",
@@ -11,6 +12,8 @@ const highIntentTerms = [
 ];
 
 export function scoreLead(lead: Lead): number {
+  const qualification = readQualification(lead);
+  if (qualification && qualification.verdict !== "icp_pass") return 0;
   if (lead.priority === "high") return 100;
 
   const searchable = `${lead.subject ?? ""} ${lead.text}`.toLowerCase();

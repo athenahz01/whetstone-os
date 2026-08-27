@@ -4,7 +4,7 @@ import {
   recordPollHeartbeat,
   WYZANT_POLL_HEARTBEAT,
 } from "../../../lib/core/heartbeat";
-import { runIngest } from "../../../lib/core/scheduler";
+import { runProspecting } from "../../../lib/core/scheduler";
 import type { Lead } from "../../../lib/core/types";
 import { secretMatches } from "../../../lib/http/secret";
 
@@ -29,13 +29,28 @@ export async function POST(request: Request) {
   if (!isLeadBatch(body)) {
     return Response.json({ error: "Invalid lead batch" }, { status: 400 });
   }
-  const guarded = await runIngest({
+  const prospecting = await runProspecting({
     adapters: [new BatchAdapter(body.leads)],
     trigger: "github-actions-ingest",
   });
-  if (!guarded.started) {
+  if (!prospecting.qualification.started) {
     return Response.json(
-      { ok: false, refused: guarded.kind, message: guarded.message },
+      {
+        ok: false,
+        refused: prospecting.qualification.kind,
+        message: prospecting.qualification.message,
+      },
+      { status: 503 },
+    );
+  }
+  const guarded = prospecting.ingest;
+  if (!guarded?.started) {
+    return Response.json(
+      {
+        ok: false,
+        refused: guarded?.kind ?? "QualificationFailed",
+        message: guarded?.message ?? "Qualification did not reach ingestion.",
+      },
       { status: 503 },
     );
   }
@@ -53,6 +68,7 @@ export async function POST(request: Request) {
   };
   return Response.json({
     ok: guarded.run.status === "succeeded",
+    qualificationRunId: prospecting.qualification.run.runId,
     runId: guarded.run.runId,
     status: guarded.run.status,
     ...result,
