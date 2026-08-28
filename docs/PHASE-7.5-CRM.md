@@ -242,6 +242,17 @@ Acceptance:
       has been quiet.
 - [ ] Every stall states its evidence basis, not just its number. A stall that
       reads "quiet 11 days" without saying what was searched fails the phase.
+- [ ] The evidence basis reports what the scan **actually covered**, not what it
+      is supposed to cover. `S4.touch-scan` isolates provider failures on
+      purpose, so a run can succeed having read only half of what it names. A
+      stall claiming "searched calendar and email" on a run where the email
+      provider failed is the clock asserting evidence it does not have.
+- [ ] Stalls rank by **how far past due, in each stage's own terms**, not by
+      absolute overdue days. Absolute days buries the urgent stages: a Cold lead
+      has a 30 day threshold, a Negotiate lead has 3, so neglect accumulates
+      faster in the stage that matters least. Against the live export the single
+      Negotiate lead ranked twelfth of fifteen and the five-item cap meant it
+      would never have been shown.
 - [ ] Thresholds are configuration, not constants. Proven by a test that flips
       one and asserts the output changes.
 - [ ] Every stall can name the row and the last touch that produced its number.

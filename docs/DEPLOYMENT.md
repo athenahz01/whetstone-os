@@ -241,6 +241,8 @@ $tables = @(
   "crm_touch_unmatched",
   "crm_touch_scans",
   "crm_threshold_overrides",
+  "crm_lead_actions",
+  "crm_snoozes",
   "_prisma_migrations"
 )
 foreach ($t in $tables) {

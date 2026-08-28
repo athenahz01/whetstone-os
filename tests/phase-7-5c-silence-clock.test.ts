@@ -17,7 +17,7 @@ import {
   thresholdFor,
   type ThresholdAdjustment,
 } from "../lib/crm/thresholds";
-import type { TouchRecord } from "../lib/crm/touches";
+import type { TouchBasis, TouchRecord } from "../lib/crm/touches";
 import { assertRegistrable } from "../lib/core/registry";
 import {
   createSilenceClockWorkflow,
@@ -240,6 +240,7 @@ function runClock(
     touchesByIdentity: touchMap(touches),
     thresholds: DEFAULT_SILENCE_THRESHOLDS,
     now: NOW,
+    coverage: { read: ["calendar", "email"], failed: [] },
     ...overrides,
   });
 }
@@ -273,22 +274,52 @@ describe("7.5c: a ranked stall list on the first execution", () => {
     );
   });
 
-  it("ranks the most overdue first, against the order the leads arrived in", () => {
+  it("ranks by how far past due, in each stage's own terms", () => {
+    // Updated by the 7.5c audit. Ranking was by absolute overdue days, which
+    // systematically buries the urgent stages: a Cold lead has a 30 day
+    // threshold so a year of neglect scores 335, while a Negotiate lead has a
+    // 3 day threshold so ten days of silence scores 7.
+    //
+    // U001 comes first in the fixture and is the least overdue, so insertion
+    // order and rank order disagree. An unsorted list fails this.
+    //   U008 Active   60 quiet / 7 threshold  = 8.6x past due
+    //   U002 Cold    100 quiet / 30 threshold = 3.3x past due
+    //   U001 Negotiate 5 quiet / 3 threshold  = 1.7x past due
+    // Under the old absolute rule U002 led on 70 overdue days, although Cold is
+    // the stage that is *expected* to be quiet - which is what its threshold
+    // says.
     const result = runClock([
-      // U001 comes first in the fixture and is the least overdue, so insertion
-      // order and rank order disagree. An unsorted list passes the previous
-      // version of this assertion and fails this one.
       touch("U001", { occurredAt: daysAgo(5) }),
       touch("U002", { occurredAt: daysAgo(100) }),
       touch("U008", { occurredAt: daysAgo(60) }),
     ]);
     expect(result.stalls.map((entry) => entry.leadRef)).toEqual([
-      "U002",
       "U008",
+      "U002",
       "U001",
     ]);
-    const overdue = result.stalls.map((entry) => entry.overdueDays ?? 0);
-    expect(overdue).toEqual([...overdue].sort((left, right) => right - left));
+    const ratios = result.stalls.map(
+      (entry) => (entry.daysQuiet ?? 0) / (entry.thresholdDays ?? 1),
+    );
+    expect(ratios).toEqual([...ratios].sort((left, right) => right - left));
+  });
+
+  it("does not let a slow stage bury an urgent one on absolute days", () => {
+    // The live export's shape: on the first run everything is measured from the
+    // lead date, and the single Negotiate lead in the whole pipeline ranked
+    // twelfth of fifteen behind Cold leads from mid-2025 that nobody is
+    // working. The five-item cap meant it would never have been shown.
+    const result = runClock([
+      touch("U002", { occurredAt: daysAgo(400) }), // Cold, 13.3x past due
+      touch("U001", { occurredAt: daysAgo(60) }), // Negotiate, 20x past due
+    ]);
+    const order = result.stalls.map((entry) => entry.leadRef);
+    const negotiate = result.stalls.find((e) => e.leadRef === "U001")!;
+    const cold = result.stalls.find((e) => e.leadRef === "U002")!;
+    expect(order.indexOf("U001")).toBeLessThan(order.indexOf("U002"));
+    // And the old rule would have put them the other way round: the Cold lead
+    // holds far more absolute overdue days and still ranks below.
+    expect(negotiate.overdueDays).toBeLessThan(cold.overdueDays ?? 0);
   });
 
   it("breaks a tie by stage urgency, not by whichever lead sorts first", () => {
@@ -731,6 +762,10 @@ describe("7.5c: the clock is a registered workflow", () => {
       thresholds: DEFAULT_SILENCE_THRESHOLDS,
       thresholdRepository: new MemoryThresholdRepository(),
       now: NOW,
+      coverage: {
+        read: ["calendar", "email"] as TouchBasis[],
+        failed: [] as TouchBasis[],
+      },
     };
   }
 

@@ -1,4 +1,5 @@
 import type { CrmLeadView } from "../crm/actionable";
+import type { ScanCoverage } from "../crm/touches";
 import {
   runSilenceClock,
   type ClockEntry,
@@ -13,6 +14,8 @@ import type { StepContext, Workflow } from "../core/workflow";
 export const S5_SILENCE_CLOCK_ID = "S5.silence-clock";
 
 export interface SilenceClockWorkflowOptions {
+  /** What the touch scan this run reads from actually covered. */
+  coverage: ScanCoverage;
   leads: CrmLeadView[];
   index: ContactIndex;
   touchesByIdentity: Map<string, TouchRecord[]>;
@@ -83,6 +86,10 @@ export function createSilenceClockWorkflow(
             thresholds: options.thresholds,
             now: options.now,
             policy: options.policy,
+            // Passed through from the scan, never assumed here. A stall that
+            // names a mailbox nobody read is the clock asserting evidence it
+            // does not have.
+            coverage: options.coverage,
           });
 
           for (const adjustment of result.adjustments) {

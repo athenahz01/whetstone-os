@@ -6,6 +6,7 @@ import {
   nextScheduledTouch,
   type TouchBasis,
   type TouchRecord,
+  type ScanCoverage,
 } from "./touches";
 import {
   thresholdFor,
@@ -46,6 +47,8 @@ export type ClockOutcome =
   | "within-threshold"
   /** A call is booked ahead. Not a stall however quiet it has been. */
   | "booked"
+  /** A human held it back until a date. Returns on its own afterwards. */
+  | "snoozed"
   /** Nothing usable to match a message against. */
   | "unmonitorable"
   /** Every usable contact reaches more than one lead. */
@@ -106,6 +109,8 @@ export interface ClockEntry {
   lastTouch?: LastTouch;
   /** The booked call that suppressed the stall. */
   nextBooked?: Date;
+  /** When a snooze lapses and the lead comes back on its own. */
+  snoozedUntil?: Date;
   /** Named for `unmonitorable`: the cells that held nothing usable. */
   missingFields?: CrmField[];
   /** Named for `unattributable`: the cells that reach more than one lead. */
@@ -121,6 +126,23 @@ export interface SilenceClockInput {
   thresholds: SilenceThresholds;
   now: Date;
   policy?: WideningPolicy;
+  /**
+   * Leads a human has held back, and until when.
+   *
+   * A snooze suppresses for exactly its window and then the lead returns
+   * without anybody remembering to bring it back. That is the difference
+   * between deferring a decision and losing one, and losing one quietly is the
+   * failure this whole phase exists to end.
+   */
+  snoozedUntil?: Map<string, Date>;
+  /**
+   * What this run's scan actually covered. Required, not defaulted.
+   *
+   * A default here would be an optimistic assertion that every caller who
+   * forgot would inherit, which is the shape of the defect this field exists
+   * to close.
+   */
+  coverage: ScanCoverage;
 }
 
 export interface SilenceClockResult {
@@ -134,6 +156,14 @@ export interface SilenceClockResult {
   adjustments: ThresholdAdjustment[];
   /** Every lead accounted for. The same invariant the import and scan carry. */
   balanced: boolean;
+  /**
+   * What this run's scan covered, carried through rather than inferred.
+   *
+   * A reader that reconstructs coverage from the entries gets it wrong the
+   * moment there are no entries: a day with no live leads would report that
+   * nothing was searched, which is the opposite of what happened.
+   */
+  coverage: ScanCoverage;
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -192,7 +222,7 @@ export function runSilenceClock(input: SilenceClockInput): SilenceClockResult {
       identity: lead.identity,
       leadRef: lead.leadRef,
       evidence: {
-        ...evidenceBasis(touches),
+        ...evidenceBasis(touches, input.coverage),
         // A partially shared lead names the half it cannot see. A wholly shared
         // one never reaches here as a stall, so this is the case that matters.
         invisibleFields: shared?.sharedFields ?? [],
@@ -232,6 +262,20 @@ export function runSilenceClock(input: SilenceClockInput): SilenceClockResult {
         outcome: "unattributable",
         stage,
         sharedFields: shared.sharedFields,
+      });
+      continue;
+    }
+
+    // A snooze outranks the quiet count but not reachability: a lead nobody
+    // could ever be recorded talking to is still worth surfacing, and holding
+    // it back would hide the reason rather than the noise.
+    const heldUntil = input.snoozedUntil?.get(lead.identity);
+    if (heldUntil && heldUntil.getTime() > input.now.getTime()) {
+      entries.push({
+        ...base,
+        outcome: "snoozed",
+        stage,
+        snoozedUntil: heldUntil,
       });
       continue;
     }
@@ -322,16 +366,44 @@ export function runSilenceClock(input: SilenceClockInput): SilenceClockResult {
     // Every lead left in exactly one outcome. The same invariant the import and
     // the touch scan carry, and it means the same thing: nothing was dropped.
     balanced: entries.length === input.leads.length,
+    coverage: input.coverage,
   };
 }
 
+/**
+ * How far past due a lead is, measured in its own stage's terms.
+ *
+ * Ranking on absolute overdue days systematically buries the urgent stages.
+ * A Cold lead has a 30 day threshold, so a year of neglect scores 335; a
+ * Negotiate lead has a 3 day threshold, so ten days of silence scores 7 - and
+ * the Cold lead wins, although it is the Negotiate lead that is about to close
+ * or be lost.
+ *
+ * Against the live export this was not marginal. On the clock's first run every
+ * lead is measured from its lead date, and the single Negotiate lead in the
+ * whole pipeline ranked twelfth of fifteen, held back behind Cold leads from
+ * mid-2025 that nobody is working. The five-item cap meant it would not have
+ * been shown at all.
+ *
+ * The ratio is the honest comparison: ten days quiet against a three day
+ * threshold is 3.3 times past due, and forty days against thirty is 1.3.
+ */
+function overdueRatio(entry: ClockEntry): number {
+  const threshold = entry.thresholdDays ?? 0;
+  const quiet = entry.daysQuiet ?? 0;
+  if (threshold <= 0) return quiet > 0 ? Number.POSITIVE_INFINITY : 0;
+  return quiet / threshold;
+}
+
 function rankStalls(left: ClockEntry, right: ClockEntry): number {
-  const byOverdue = (right.overdueDays ?? 0) - (left.overdueDays ?? 0);
-  if (byOverdue !== 0) return byOverdue;
+  const byRatio = overdueRatio(right) - overdueRatio(left);
+  if (byRatio !== 0) return byRatio;
   const byStage =
     STAGE_URGENCY.indexOf(left.stage as CrmStatus) -
     STAGE_URGENCY.indexOf(right.stage as CrmStatus);
   if (byStage !== 0) return byStage;
+  const byOverdue = (right.overdueDays ?? 0) - (left.overdueDays ?? 0);
+  if (byOverdue !== 0) return byOverdue;
   // Deterministic, so two runs over unchanged data produce the same order.
   return left.leadRef.localeCompare(right.leadRef);
 }
@@ -368,7 +440,11 @@ export function describeStall(entry: ClockEntry): string {
       ? `last ${entry.lastTouch.basis} touch ${entry.lastTouch.occurredAt.toISOString().slice(0, 10)}`
       : "no touch on record, measured from the lead date",
   );
-  parts.push(`searched ${entry.evidence.searched.join(" and ")}`);
+  parts.push(
+    entry.evidence.searched.length > 0
+      ? `searched ${entry.evidence.searched.join(" and ")}`
+      : "searched nothing on this run",
+  );
   parts.push(`blind to ${entry.evidence.blindTo.join(", ")}`);
   if (entry.evidence.invisibleFields.length > 0) {
     parts.push(

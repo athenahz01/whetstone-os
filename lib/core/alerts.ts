@@ -34,6 +34,20 @@ export interface ExceptionAlertService {
   notifyException(title: string, detail: string): Promise<void>;
 }
 
+/**
+ * The daily check-in message.
+ *
+ * Its own method rather than a reuse of `notifyException`, because a day's
+ * stall list is not an exception and prefixing it as one would train the
+ * recipient to read a routine message as a fault. It takes no recipient, for
+ * the same reason nothing else here does: the operator inbox is the only
+ * address this system can reach, and this message names minors.
+ */
+export interface DigestAlertService {
+  isEnabled(): boolean;
+  notifyDigest(subject: string, body: string): Promise<void>;
+}
+
 export class StubAlertService implements AlertService {
   isEnabled(): boolean {
     return true;
@@ -62,7 +76,9 @@ export interface EmailAlertServiceOptions {
   warn?: (message: string) => void;
 }
 
-export class EmailAlertService implements AlertService, ExceptionAlertService {
+export class EmailAlertService
+  implements AlertService, ExceptionAlertService, DigestAlertService
+{
   private readonly from?: string;
   private readonly to?: string;
   private readonly reviewBaseUrl?: string;
@@ -114,6 +130,16 @@ export class EmailAlertService implements AlertService, ExceptionAlertService {
       detail,
       `Review: ${ready.reviewBaseUrl}`,
     ]);
+  }
+
+  async notifyDigest(subject: string, body: string): Promise<void> {
+    const ready = this.readyConfig();
+    if (!ready) return;
+
+    // No review link appended. The message's own reply codes are the action,
+    // and a link would push the recipient to a web app the phase exists to
+    // make unnecessary.
+    await this.send(ready, subject, [body]);
   }
 
   /**

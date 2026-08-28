@@ -830,14 +830,17 @@ describe("7.5b: every row says how it was learned", () => {
   });
 
   it("states what was searched and what it is blind to", () => {
-    const basis = evidenceBasis([
-      assertedTouch({
-        identity: "i",
-        leadRef: "U005",
-        assertedBy: "ren",
-        occurredAt: NOW,
-      }),
-    ]);
+    const basis = evidenceBasis(
+      [
+        assertedTouch({
+          identity: "i",
+          leadRef: "U005",
+          assertedBy: "ren",
+          occurredAt: NOW,
+        }),
+      ],
+      { read: ["calendar", "email"], failed: [] },
+    );
     // Section 7: roughly half of first meetings are phone calls that leave no
     // trace. A number offered without this is a claim the data cannot support.
     expect(basis.searched).toEqual(["calendar", "email"]);

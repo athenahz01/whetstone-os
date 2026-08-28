@@ -331,6 +331,8 @@ model CrmLead {
   disputes               CrmFieldDispute[]
   touches                CrmTouch[]
   thresholdOverrides     CrmThresholdOverride[]
+  actions                CrmLeadAction[]
+  snoozes                CrmSnooze[]
 
   @@index([orgId, leadRef])
   @@index([orgId, statusValue])
@@ -484,4 +486,40 @@ model CrmThresholdOverride {
   @@unique([identity, stage])
   @@index([orgId, clearedAt])
   @@map("crm_threshold_overrides")
+}
+
+model CrmLeadAction {
+  id         String   @id @default(uuid()) @db.Uuid
+  orgId      String   @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
+  identity   String
+  leadRef    String   @map("lead_ref")
+  /// From a closed list: draft, snooze, lost, spoke.
+  action     String
+  /// Who replied. A write nobody owns is not an attributed write.
+  actor      String
+  actedAt    DateTime @map("acted_at") @db.Timestamptz(3)
+  /// Which day's message this answered, so a reply traces to its list.
+  digestDate DateTime @map("digest_date") @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  lead       CrmLead  @relation(fields: [identity], references: [identity], onDelete: Cascade)
+
+  @@unique([identity, action, digestDate])
+  @@index([orgId, actedAt])
+  @@map("crm_lead_actions")
+}
+
+model CrmSnooze {
+  id        String   @id @default(uuid()) @db.Uuid
+  orgId     String   @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
+  identity  String
+  leadRef   String   @map("lead_ref")
+  /// The lead returns on its own after this. Never a permanent hide.
+  until     DateTime @db.Timestamptz(3)
+  actor     String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  lead      CrmLead  @relation(fields: [identity], references: [identity], onDelete: Cascade)
+
+  @@unique([identity, until])
+  @@index([orgId, until])
+  @@map("crm_snoozes")
 }

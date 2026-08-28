@@ -402,15 +402,53 @@ export function nextScheduledTouch(
  * and are roughly half of first meetings, so "quiet 11 days" without this is a
  * claim about silence that the data cannot support.
  */
-export function evidenceBasis(touches: TouchRecord[]): {
+/**
+ * What a scan actually covered, as opposed to what it is supposed to cover.
+ *
+ * `S4.touch-scan` isolates provider failures so a calendar outage does not cost
+ * a day of email evidence. That is the right behaviour, and it means a run can
+ * succeed having read only half of what it names.
+ */
+export interface ScanCoverage {
+  /** Providers that returned on this run. */
+  read: TouchBasis[];
+  /** Providers that were attempted and failed. */
+  failed: TouchBasis[];
+  /** When each provider last returned, where that is known. */
+  lastReadAt?: Partial<Record<TouchBasis, Date>>;
+}
+
+/**
+ * What was actually searched, what turned up, and what could not be seen.
+ *
+ * `searched` used to be the constant `["calendar", "email"]`. That asserted a
+ * search the run may not have performed: a provider can fail, the scan
+ * continues by design, and every stall line still claimed both mailboxes were
+ * read. A person reading "quiet 11 days, searched calendar and email" would
+ * conclude nobody had emailed, when the truth was that nobody had looked.
+ *
+ * The standing blindness - phone calls from personal mobiles - is different. It
+ * is true on every run regardless of coverage, so it is stated unconditionally.
+ */
+export function evidenceBasis(
+  touches: TouchRecord[],
+  coverage: ScanCoverage,
+): {
   searched: TouchBasis[];
   observed: TouchBasis[];
   blindTo: string[];
+  staleBases: TouchBasis[];
 } {
   const observed = [...new Set(touches.map((touch) => touch.basis))].sort();
+  const searched = [...coverage.read].sort();
+  const blindTo = ["phone calls from personal mobiles"];
+  for (const failed of [...coverage.failed].sort()) {
+    blindTo.push(`${failed}, which was attempted and failed on this run`);
+  }
   return {
-    searched: ["calendar", "email"],
+    searched,
     observed,
-    blindTo: ["phone calls from personal mobiles"],
+    blindTo,
+    staleBases: [...coverage.failed].sort(),
   };
 }
