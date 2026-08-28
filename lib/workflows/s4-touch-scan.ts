@@ -25,6 +25,8 @@ export interface TouchScanBatch {
   ambiguous: number;
   unaddressed: number;
   unmonitorableLeads: number;
+  /** Leads whose every usable contact reaches more than one lead. */
+  unattributableLeads: number;
 }
 
 /**
@@ -96,6 +98,12 @@ export function createTouchScanWorkflow(
             ambiguous: 0,
             unaddressed: 0,
             unmonitorableLeads: index.unmonitorable.length,
+            // Counted separately from unmonitorable on purpose. A lead with a
+            // shared parent address has contact details and still cannot be
+            // credited a touch, so folding the two together would let it read
+            // as healthy.
+            unattributableLeads: index.unattributable.filter((l) => l.wholly)
+              .length,
           };
 
           for (const provider of options.providers) {
@@ -130,6 +138,11 @@ export function createTouchScanWorkflow(
           context.measure(
             "s4.leads_unmonitorable",
             batch.unmonitorableLeads,
+            "leads",
+          );
+          context.measure(
+            "s4.leads_unattributable",
+            batch.unattributableLeads,
             "leads",
           );
           return batch;
@@ -190,6 +203,7 @@ export function createTouchScanWorkflow(
     measures: [
       { kpi: "s4.touches_recorded", unit: "touches" },
       { kpi: "s4.leads_unmonitorable", unit: "leads" },
+      { kpi: "s4.leads_unattributable", unit: "leads" },
     ],
     // No baseline. H-01 through H-10 record ten manual tasks and none of them
     // is "notice that a lead was contacted and write it down", because in the

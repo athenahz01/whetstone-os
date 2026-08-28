@@ -60,6 +60,33 @@ export interface ContactIndex {
     leadRef: string;
     field: CrmField;
   }>;
+  /**
+   * Leads holding contact details that reach more than one lead, so a message
+   * on them cannot be attributed.
+   *
+   * A third state, and the one that hides. `unmonitorable` covers a lead with
+   * nothing to match on; this covers a lead with something to match on that
+   * resolves to two families. Siblings are the ordinary cause: a parent's
+   * address sits on both children's rows, and every message from that parent is
+   * ambiguous, so neither child is ever credited with a touch.
+   *
+   * In the live export this is not hypothetical. U017 and U018 each hold one
+   * usable contact - the same parent phone - so both are wholly unattributable,
+   * and U018 is a live lead. U013 and U024 share a parent email and phone;
+   * U024 is Active, and every parent contact for her is invisible while her
+   * remaining unshared cell still matches, which is worse than being wholly
+   * blind because the record looks partly alive.
+   *
+   * `wholly` is the lead that can never be credited a touch. It must reach the
+   * silence clock the way `unmonitorable` does: visible, never healthy.
+   */
+  unattributable: Array<{
+    identity: string;
+    leadRef: string;
+    sharedFields: CrmField[];
+    usableFields: number;
+    wholly: boolean;
+  }>;
 }
 
 export type ContactLookup =
@@ -114,6 +141,12 @@ export function buildContactIndex(leads: CrmLeadView[]): ContactIndex {
   const byValue = new Map<string, ContactEntry[]>();
   const unmonitorable: ContactIndex["unmonitorable"] = [];
   const disputedContacts: ContactIndex["disputedContacts"] = [];
+  // Recorded per lead on the first pass; sharing can only be judged once every
+  // lead's values are in the index, so the verdict is taken afterwards.
+  const usableByLead = new Map<
+    string,
+    { leadRef: string; fields: Array<{ field: CrmField; value: string }> }
+  >();
 
   for (const lead of leads) {
     const missingFields: CrmField[] = [];
@@ -141,6 +174,12 @@ export function buildContactIndex(leads: CrmLeadView[]): ContactIndex {
         continue;
       }
       usable += 1;
+      const held2 = usableByLead.get(lead.identity) ?? {
+        leadRef: lead.leadRef,
+        fields: [],
+      };
+      held2.fields.push({ field, value: normalized.value });
+      usableByLead.set(lead.identity, held2);
       const entry: ContactEntry = {
         value: normalized.value,
         kind: normalized.kind,
@@ -162,7 +201,29 @@ export function buildContactIndex(leads: CrmLeadView[]): ContactIndex {
     }
   }
 
-  return { entries, byValue, unmonitorable, disputedContacts };
+  const unattributable: ContactIndex["unattributable"] = [];
+  for (const [identity, held] of usableByLead) {
+    const shared = held.fields.filter(
+      ({ value }) =>
+        new Set((byValue.get(value) ?? []).map((e) => e.identity)).size > 1,
+    );
+    if (shared.length === 0) continue;
+    unattributable.push({
+      identity,
+      leadRef: held.leadRef,
+      sharedFields: shared.map(({ field }) => field),
+      usableFields: held.fields.length,
+      wholly: shared.length === held.fields.length,
+    });
+  }
+
+  return {
+    entries,
+    byValue,
+    unmonitorable,
+    disputedContacts,
+    unattributable,
+  };
 }
 
 /**

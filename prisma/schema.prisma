@@ -330,6 +330,7 @@ model CrmLead {
   updatedAt              DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
   disputes               CrmFieldDispute[]
   touches                CrmTouch[]
+  thresholdOverrides     CrmThresholdOverride[]
 
   @@index([orgId, leadRef])
   @@index([orgId, statusValue])
@@ -457,4 +458,30 @@ model CrmTouchScan {
   @@index([orgId, provider, createdAt])
   @@index([orgId, status, createdAt])
   @@map("crm_touch_scans")
+}
+
+model CrmThresholdOverride {
+  id                String   @id @default(uuid()) @db.Uuid
+  orgId             String   @default("00000000-0000-0000-0000-000000000001") @map("org_id") @db.Uuid
+  identity          String
+  leadRef           String   @map("lead_ref")
+  stage             String
+  /// The stage default this replaces, kept so the change stays legible.
+  baseDays          Int      @map("base_days")
+  adjustedDays      Int      @map("adjusted_days")
+  /// From a closed list. A tuning reason sits next to a lead record, which is
+  /// exactly where prose would otherwise carry a student's name.
+  reason            String
+  /// The evidence for the change: asserted touches with nothing else between.
+  assertedRunLength Int      @map("asserted_run_length")
+  /// Set when the run breaks and the lead returns to its stage default. The
+  /// row is never deleted, so the history of a widening survives it.
+  clearedAt         DateTime? @map("cleared_at") @db.Timestamptz(3)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  lead              CrmLead  @relation(fields: [identity], references: [identity], onDelete: Cascade)
+
+  @@unique([identity, stage])
+  @@index([orgId, clearedAt])
+  @@map("crm_threshold_overrides")
 }

@@ -151,8 +151,13 @@ Acceptance:
       database, or appears in a rejected-rows report with a reason. **A silently
       dropped row fails the phase.** This is the 41% inventory-loss defect from
       Phase 4 and it must not recur.
-- [ ] Row counts reconcile: 43 merged, 25 unique to `!Dashboard`, plus the
-      `U036` split, stated and matching.
+- [x] Row counts reconcile. **Closed 2026-08-27 against the live export.**
+      UG Sales: **69 leads, 44 merged, 25 dashboard-only, 0 copy-only**, with
+      `ug_sales::U036` the only split lead reference and no ambiguous rejections.
+      44 merged leads across 43 shared references, because `U036` contributes
+      two. G Sales: 31 merged, 0 and 0. `copyOnly` must be **0** for this data,
+      and it is the canary: no lead exists only in the copy, so any non-zero
+      value is a failed join rather than a real orphan.
 - [ ] All 6 head-to-head conflicts import as `disputed` and appear in a ruling
       list. None is resolved by a rule.
 - [ ] A `disputed` cell cannot drive a stall, a threshold or a draft. Proven by
@@ -160,6 +165,18 @@ Acceptance:
       stall list rather than silently defaulting.
 - [ ] `U036` imports as two rows with distinct ids. Never merged by a dedupe
       heuristic.
+- [ ] A row with an ID and no student name joins the named row for that ID when
+      there is exactly one. **21 rows in `!Dashboard` have an ID and no name**,
+      and in the live export U045, U046 and U047 are named in `!Dashboard` and
+      nameless in the copy. Keying identity on the name split each into two
+      records sharing one reference, one holding the funnel and one holding the
+      academic columns.
+- [ ] When an ID is shared by two or more **named** students, a nameless row for
+      that ID is rejected with a reason rather than joined by a guess.
+- [ ] `splitLeadRefs` is empty apart from declared splits, and the write
+      boundary refuses an undeclared one. **Balance cannot catch a failed join**
+      - it counts source rows, and two rows that should be one lead balance
+      perfectly.
 - [ ] A value outside a vocabulary is stored raw and flagged, never coerced to
       the nearest match.
 - [ ] Re-running the import is idempotent. Proven by running it twice and
@@ -191,6 +208,13 @@ Acceptance:
 - [ ] Every `touches` row records how it was learned: `email`, `calendar`, or
       `asserted` (section 7). A row can always say whether a human or a mailbox
       produced it.
+- [ ] A lead whose contact details are **shared with another lead** is reported
+      as `unattributable`, separately from `unmonitorable`. Having a contact
+      detail is not the same as being reachable: in the live export U017 and
+      U018 hold one usable contact each and it is the same parent phone, so
+      every message from that parent is ambiguous and neither lead can ever be
+      credited a touch. **U018 is live.** Siblings are the ordinary cause and
+      the sheet already holds Liu twice, Wu twice and Wang three times.
 - [ ] No message body text is stored. Subject reference and metadata only.
 
 ### 7.5c - The silence clock (GREEN, scheduled)
@@ -210,6 +234,10 @@ Acceptance:
       execution.
 - [ ] A lead with no matchable contact detail appears as `unmonitorable` with
       the missing field named. It never appears as "no action needed".
+- [ ] A wholly `unattributable` lead reaches the clock the same way, and for the
+      same reason: it cannot be re-checked, so it is visible, never healthy. A
+      partially shared lead names which fields are invisible, so the stall line
+      can say so rather than implying a complete picture.
 - [ ] A lead with a scheduled call ahead of it is not a stall, however long it
       has been quiet.
 - [ ] Every stall states its evidence basis, not just its number. A stall that
