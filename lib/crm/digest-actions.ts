@@ -46,7 +46,59 @@ export interface ParsedDigestReply {
  * a code that does not address a lead in this message is reported rather than
  * guessed at. Codes are resolved against the digest that was actually sent, so
  * yesterday's "24" cannot act on today's second lead.
+ *
+ * Only what the person typed is read. The quoted original is cut off first, and
+ * a code must stand on its own rather than sit inside a date or a clock time.
  */
+/**
+ * Markers where a reply stops being the reply and becomes the quoted original.
+ *
+ * Every mail client appends the message being answered. Gmail and Apple Mail
+ * prefix each line with ">" under an attribution line; Outlook uses a rule and
+ * a header block. The digest prints every code for every lead, so a quoted
+ * digest contains the entire command vocabulary.
+ */
+const QUOTE_MARKERS: RegExp[] = [
+  /^>/,
+  /^\s*On .*wrote:\s*$/i,
+  /^\s*-{2,}\s*Original Message\s*-{2,}\s*$/i,
+  /^\s*_{10,}\s*$/,
+  /^\s*-{10,}\s*$/,
+  /^\s*From:\s/i,
+  /^\s*Sent from my /i,
+  /^\s*Get Outlook for /i,
+];
+
+/**
+ * Keeps only what the person actually typed.
+ *
+ * Without this, a reply of "13" sent from any ordinary mail client parses as
+ * twenty commands - every code for every lead in the quoted body - and the
+ * conflict guard then refuses all of them. The instruction is discarded and the
+ * day's triage silently does nothing. Email is the defaulted delivery channel,
+ * so that is every reply, every day.
+ */
+export function stripQuotedReply(text: string): string {
+  const lines = text.split(/\r?\n/);
+  const kept: string[] = [];
+  for (const line of lines) {
+    if (QUOTE_MARKERS.some((marker) => marker.test(line))) break;
+    kept.push(line);
+  }
+  return kept.join("\n");
+}
+
+/**
+ * Two-digit codes that stand on their own.
+ *
+ * A bare split on non-digits also reads a date or a clock time as commands:
+ * "2026-08-24" and "08:24" both yield "24", which addresses the second lead. A
+ * single spurious code raises no conflict, so it would apply - a command nobody
+ * typed, from a timestamp. The lookarounds require the run to be bounded by
+ * something that is not a digit or a date separator.
+ */
+const CODE_TOKEN = /(?<![\d:/.\-])\d{2}(?![\d:/.\-])/g;
+
 export function parseDigestReply(
   text: string,
   digest: DailyDigest,
@@ -65,7 +117,8 @@ export function parseDigestReply(
   const commands: DigestCommand[] = [];
   const unrecognised: string[] = [];
   const seen = new Set<string>();
-  for (const token of text.split(/[^0-9]+/).filter(Boolean)) {
+  const typed = stripQuotedReply(text);
+  for (const token of typed.match(CODE_TOKEN) ?? []) {
     const command = byCode.get(token);
     if (!command) {
       unrecognised.push(token);

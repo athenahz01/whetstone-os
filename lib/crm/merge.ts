@@ -28,8 +28,17 @@ import {
 
 export type CrmTab = "ug_sales" | "g_sales" | "affiliate";
 
-/** Which file a value came from. `!Dashboard` is the working default. */
-export type CrmSource = "dashboard" | "dashboard_copy";
+/**
+ * Which file a value came from. `!Dashboard` is the working default.
+ *
+ * `dashboard_rebuilt` is Athena's 28 Aug 2026 rebuild, which is one sheet
+ * rather than a fork. Importing from it is a single-source import: there is no
+ * second file to disagree with, so no cell can arrive disputed, and the merge
+ * machinery below is doing reconciliation work that has nothing to reconcile.
+ * That is the point of retargeting - the fork stops being a thing to resolve
+ * because it stops existing.
+ */
+export type CrmSource = "dashboard" | "dashboard_copy" | "dashboard_rebuilt";
 
 export const WORKING_SOURCE: CrmSource = "dashboard";
 
@@ -164,6 +173,21 @@ export interface CrmReconciliation {
   copyOnly: number;
   disputedCells: number;
   unmappedCells: number;
+  /**
+   * Headers carrying data that no field maps to.
+   *
+   * `fieldsFrom` walks the known columns and takes what it finds, so a column
+   * the map does not know is not an error - it is nothing at all. Against the
+   * sheet the map was written for that is harmless. Against a different sheet,
+   * or a renamed one, it means the import succeeds, balances, and produces
+   * leads whose fields are blank because nobody was reading the cells.
+   *
+   * That is this phase's own failure mode wearing a new hat: a count that
+   * proves no row was lost cannot prove a row arrived with its contents. So
+   * every unmapped header holding at least one value is named here, and the
+   * write boundary refuses an import carrying one nobody declared.
+   */
+  unmappedColumns: CrmColumnUsage[];
   /** True only when imported plus rejected accounts for every row read. */
   balanced: boolean;
   /**
@@ -191,6 +215,13 @@ export function isBalanced(totals: {
   rowsRejected: number;
 }): boolean {
   return totals.rowsImported + totals.rowsRejected === totals.rowsRead;
+}
+
+/** An unmapped header, and how much data sits under it. */
+export interface CrmColumnUsage {
+  column: string;
+  /** Non-empty cells. An empty unmapped column loses nothing. */
+  filledCells: number;
 }
 
 export interface MergeResult {
@@ -266,6 +297,26 @@ function resolveNamelessIdentity(
   if (candidates.length === 0)
     return { identity: namelessIdentity(tab, leadRef) };
   return { ambiguous: candidates };
+}
+
+/**
+ * Headers holding data that the column map does not read.
+ *
+ * Counted across every row rather than sampled from the first, because a sheet
+ * can carry a column that is populated only on the rows that matter.
+ */
+export function unmappedColumns(rows: CrmSourceRow[]): CrmColumnUsage[] {
+  const filled = new Map<string, number>();
+  for (const row of rows) {
+    for (const [column, value] of Object.entries(row.cells)) {
+      if (column in COLUMN_TO_FIELD || column === "ID") continue;
+      if (!value?.trim()) continue;
+      filled.set(column, (filled.get(column) ?? 0) + 1);
+    }
+  }
+  return [...filled.entries()]
+    .map(([column, filledCells]) => ({ column, filledCells }))
+    .sort((left, right) => left.column.localeCompare(right.column));
 }
 
 function fieldsFrom(row: CrmSourceRow): Partial<Record<CrmField, string>> {
@@ -436,6 +487,7 @@ export function mergeCrmSources(
       // the import lost something, and the caller must refuse to proceed.
       balanced: isBalanced({ rowsRead, rowsImported, rowsRejected }),
       splitLeadRefs: splitLeadRefs(leads),
+      unmappedColumns: unmappedColumns([...primary, ...secondary]),
     },
   };
 }

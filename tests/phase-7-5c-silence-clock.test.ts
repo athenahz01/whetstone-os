@@ -283,8 +283,8 @@ describe("7.5c: a ranked stall list on the first execution", () => {
     // U001 comes first in the fixture and is the least overdue, so insertion
     // order and rank order disagree. An unsorted list fails this.
     //   U008 Active   60 quiet / 7 threshold  = 8.6x past due
-    //   U002 Cold    100 quiet / 30 threshold = 3.3x past due
-    //   U001 Negotiate 5 quiet / 3 threshold  = 1.7x past due
+    //   U002 Cold    100 quiet / 15 threshold = 6.7x past due
+    //   U001 Negotiate 5 quiet / 2 threshold  = 2.5x past due
     // Under the old absolute rule U002 led on 70 overdue days, although Cold is
     // the stage that is *expected* to be quiet - which is what its threshold
     // says.
@@ -310,8 +310,8 @@ describe("7.5c: a ranked stall list on the first execution", () => {
     // twelfth of fifteen behind Cold leads from mid-2025 that nobody is
     // working. The five-item cap meant it would never have been shown.
     const result = runClock([
-      touch("U002", { occurredAt: daysAgo(400) }), // Cold, 13.3x past due
-      touch("U001", { occurredAt: daysAgo(60) }), // Negotiate, 20x past due
+      touch("U002", { occurredAt: daysAgo(400) }), // Cold, 26.7x past due
+      touch("U001", { occurredAt: daysAgo(60) }), // Negotiate, 30x past due
     ]);
     const order = result.stalls.map((entry) => entry.leadRef);
     const negotiate = result.stalls.find((e) => e.leadRef === "U001")!;
@@ -324,19 +324,79 @@ describe("7.5c: a ranked stall list on the first execution", () => {
 
   it("breaks a tie by stage urgency, not by whichever lead sorts first", () => {
     const result = runClock([
-      // All four tie at ten days overdue. U013 is the Negotiate lead and its
-      // reference sorts last of the four, so ranking by reference alone would
-      // bury the closest thing to a signed deal beneath three cold ones.
-      touch("U013", { occurredAt: daysAgo(13) }),
-      touch("U000", { occurredAt: daysAgo(40) }),
-      touch("U002", { occurredAt: daysAgo(40) }),
-      touch("U009", { occurredAt: daysAgo(40) }),
+      // A real tie in the terms the ranking actually uses. Eight days against
+      // Negotiate's two and sixty against Cold's fifteen are both exactly four
+      // times past due, so the ratio separates none of them and stage urgency
+      // is the only rule left.
+      //
+      // The previous version of this tied on absolute overdue days, which the
+      // ratio rule does not tie on, so stage urgency never decided anything
+      // here and deleting it changed nothing.
+      touch("U013", { occurredAt: daysAgo(8) }),
+      touch("U000", { occurredAt: daysAgo(60) }),
+      touch("U002", { occurredAt: daysAgo(60) }),
+      touch("U009", { occurredAt: daysAgo(60) }),
     ]);
     const tied = result.stalls
-      .filter((entry) => entry.overdueDays === 10)
+      .filter(
+        (entry) => (entry.daysQuiet ?? 0) / (entry.thresholdDays ?? 1) === 4,
+      )
       .map((entry) => entry.leadRef);
     expect(tied).toEqual(["U013", "U000", "U002", "U009"]);
+    // U013 is the Negotiate lead, it sorts last of the four by reference, and
+    // it holds the fewest overdue days. Every other rule would bury it.
     expect(tied[0]).not.toBe([...tied].sort()[0]);
+    expect(
+      result.stalls.find((entry) => entry.leadRef === "U013")?.overdueDays,
+    ).toBeLessThan(
+      result.stalls.find((entry) => entry.leadRef === "U000")?.overdueDays ?? 0,
+    );
+  });
+
+  it("separates two leads of one stage whose thresholds differ", () => {
+    // Stage urgency cannot decide between two Negotiate leads, and the ratio
+    // cannot either when both are exactly four times past due. What separates
+    // them is that one has been widened by the asserted-run rule, so it carries
+    // a four day threshold against the other's two - the only way two leads of
+    // one stage can tie on ratio and still differ in absolute days.
+    const result = runClock([
+      touch("U013", {
+        basis: "asserted",
+        kind: "meeting",
+        direction: "outbound",
+        sourceRef: "asserted:U013:1",
+        matchedField: null,
+        assertedBy: "ren",
+        occurredAt: daysAgo(16),
+      }),
+      touch("U013", {
+        basis: "asserted",
+        kind: "meeting",
+        direction: "outbound",
+        sourceRef: "asserted:U013:2",
+        matchedField: null,
+        assertedBy: "ren",
+        occurredAt: daysAgo(23),
+      }),
+      touch("U013", {
+        basis: "asserted",
+        kind: "meeting",
+        direction: "outbound",
+        sourceRef: "asserted:U013:3",
+        matchedField: null,
+        assertedBy: "ren",
+        occurredAt: daysAgo(30),
+      }),
+      touch("U001", { occurredAt: daysAgo(8) }),
+    ]);
+    const negotiate = result.stalls.filter(
+      (entry) => entry.stage === "Negotiate",
+    );
+    expect(negotiate.map((entry) => entry.thresholdDays)).toEqual([4, 2]);
+    expect(negotiate.map((entry) => entry.daysQuiet)).toEqual([16, 8]);
+    // Twelve days past due outranks six, although the reference would put them
+    // the other way round.
+    expect(negotiate.map((entry) => entry.leadRef)).toEqual(["U013", "U001"]);
   });
 
   it("orders two equally overdue leads of one stage deterministically", () => {
@@ -351,7 +411,7 @@ describe("7.5c: a ranked stall list on the first execution", () => {
     const cold = () =>
       runClock(touches)
         .stalls.filter(
-          (entry) => entry.stage === "Cold" && entry.overdueDays === 10,
+          (entry) => entry.stage === "Cold" && entry.overdueDays === 25,
         )
         .map((entry) => entry.leadRef);
     expect(cold()).toEqual(["U000", "U002", "U009"]);
@@ -448,7 +508,7 @@ describe("7.5c: a lead that cannot be measured is never healthy", () => {
     // expired.
     expect(entry.outcome).toBe("unmeasurable");
     expect(entry.daysQuiet).toBeUndefined();
-    expect(entry.thresholdDays).toBe(7);
+    expect(entry.thresholdDays).toBe(3);
   });
 
   it("gives each uncounted lead its own reason, never one catch-all", () => {
@@ -550,7 +610,7 @@ describe("7.5c: a number never travels without its evidence", () => {
     const line = describeStall(entryFor(result, "U001"));
     // The threshold travels with the count. "Quiet 11 days" alone is the
     // sentence the acceptance criteria name as a failure.
-    expect(line).toContain("quiet 11 days against a 3 day threshold");
+    expect(line).toContain("quiet 11 days against a 2 day threshold");
     // The sentence the acceptance criteria name as a failure is "quiet 11
     // days" on its own.
     expect(line).toMatch(/searched calendar and email/);
@@ -585,21 +645,21 @@ describe("7.5c: a number never travels without its evidence", () => {
 
 describe("7.5c: thresholds are configuration", () => {
   it("changes the output when a threshold is flipped", () => {
-    const touches = [touch("U002", { occurredAt: daysAgo(20) })];
-    // Cold defaults to 30 days, so 20 days quiet is not yet a stall.
+    const touches = [touch("U002", { occurredAt: daysAgo(10) })];
+    // Cold is 15 days, so 10 days quiet is not yet a stall.
     const asConfigured = runClock(touches);
     expect(entryFor(asConfigured, "U002").outcome).toBe("within-threshold");
 
     const tightened = runClock(touches, {
-      thresholds: { ...DEFAULT_SILENCE_THRESHOLDS, Cold: 14 },
+      thresholds: { ...DEFAULT_SILENCE_THRESHOLDS, Cold: 7 },
     });
     expect(entryFor(tightened, "U002").outcome).toBe("stall");
-    expect(entryFor(tightened, "U002").thresholdDays).toBe(14);
+    expect(entryFor(tightened, "U002").thresholdDays).toBe(7);
   });
 
   it("takes a stage out of the clock entirely when its threshold is removed", () => {
     const { Cold, ...withoutCold } = DEFAULT_SILENCE_THRESHOLDS;
-    expect(Cold).toBe(30);
+    expect(Cold).toBe(15);
     const result = runClock([], { thresholds: withoutCold });
     const entry = entryFor(result, "U002");
     expect(entry.outcome).toBe("not-clocked");
@@ -607,13 +667,17 @@ describe("7.5c: thresholds are configuration", () => {
     expect(entry.notClockedReason).toBe("no-threshold");
   });
 
-  it("ships the starting values the brief names", () => {
+  it("ships Whetstone's own cadence, not the build plan's placeholders", () => {
+    // The CRM Action Sheet v1.0, which is what the rebuilt !Dashboard drives
+    // its own Chase After and Chase Flag columns from. The placeholders these
+    // replaced were uniformly about twice too slow, so the sheet and the clock
+    // were chasing on two different cadences.
     expect(DEFAULT_SILENCE_THRESHOLDS).toEqual({
-      Negotiate: 3,
-      Active: 7,
-      Engage: 7,
-      Prospect: 14,
-      Cold: 30,
+      Negotiate: 2,
+      Active: 3,
+      Engage: 3,
+      Prospect: 7,
+      Cold: 15,
     });
     // Complete, Lost, NQ and Inactive are absent rather than set high. They are
     // not slow, they are finished.
@@ -669,19 +733,19 @@ describe("7.5c: a lead run by phone widens, and never silently", () => {
 
   it("applies the widened number, not just records it", () => {
     const touches = [
-      asserted("U001", 5, 1),
-      asserted("U001", 12, 2),
-      asserted("U001", 19, 3),
+      asserted("U001", 3, 1),
+      asserted("U001", 10, 2),
+      asserted("U001", 17, 3),
     ];
     const resolved = thresholdFor(
       "Negotiate",
       touches,
       DEFAULT_SILENCE_THRESHOLDS,
     );
-    expect(resolved?.days).toBe(6);
-    expect(resolved?.adjustment?.adjustedDays).toBe(6);
-    // Five days quiet against a widened six is not a stall. Against the
-    // unwidened three it would be, so the number has to actually be in use.
+    expect(resolved?.days).toBe(4);
+    expect(resolved?.adjustment?.adjustedDays).toBe(4);
+    // Three days quiet against a widened four is not a stall. Against the
+    // unwidened two it would be, so the number has to actually be in use.
     expect(entryFor(runClock(touches), "U001").outcome).toBe(
       "within-threshold",
     );
@@ -702,47 +766,47 @@ describe("7.5c: a lead run by phone widens, and never silently", () => {
 
   it("widens the threshold after three assertions with nothing between", () => {
     const touches = [
-      asserted("U001", 5, 1),
-      asserted("U001", 12, 2),
-      asserted("U001", 19, 3),
+      asserted("U001", 3, 1),
+      asserted("U001", 10, 2),
+      asserted("U001", 17, 3),
     ];
     const result = runClock(touches);
     const entry = entryFor(result, "U001");
-    // Negotiate is 3 days. A relationship run entirely by phone is nagged on a
+    // Negotiate is 2 days. A relationship run entirely by phone is nagged on a
     // cadence the system has no evidence for, so it doubles.
-    expect(entry.thresholdDays).toBe(6);
+    expect(entry.thresholdDays).toBe(4);
     expect(result.adjustments).toHaveLength(1);
   });
 
   it("records the change with its reason and its evidence", () => {
     const result = runClock([
-      asserted("U001", 5, 1),
-      asserted("U001", 12, 2),
-      asserted("U001", 19, 3),
+      asserted("U001", 3, 1),
+      asserted("U001", 10, 2),
+      asserted("U001", 17, 3),
     ]);
     expect(result.adjustments[0]).toMatchObject({
       leadRef: "U001",
       stage: "Negotiate",
-      baseDays: 3,
-      adjustedDays: 6,
+      baseDays: 2,
+      adjustedDays: 4,
       reason: "asserted_only_run",
       assertedRunLength: 3,
     });
   });
 
   it("does not widen on two assertions", () => {
-    const result = runClock([asserted("U001", 5, 1), asserted("U001", 12, 2)]);
+    const result = runClock([asserted("U001", 3, 1), asserted("U001", 10, 2)]);
     expect(result.adjustments).toHaveLength(0);
-    expect(entryFor(result, "U001").thresholdDays).toBe(3);
+    expect(entryFor(result, "U001").thresholdDays).toBe(2);
   });
 
   it("takes its trigger and its multiplier from the policy, not from a constant", () => {
-    const touches = [asserted("U001", 5, 1), asserted("U001", 12, 2)];
+    const touches = [asserted("U001", 3, 1), asserted("U001", 10, 2)];
     const result = runClock(touches, {
       policy: { afterAssertedRun: 2, multiplier: 5 },
     });
-    expect(entryFor(result, "U001").thresholdDays).toBe(15);
-    expect(result.adjustments[0]?.adjustedDays).toBe(15);
+    expect(entryFor(result, "U001").thresholdDays).toBe(10);
+    expect(result.adjustments[0]?.adjustedDays).toBe(10);
   });
 
   it("returns no threshold at all for a stage the clock does not watch", () => {

@@ -7,6 +7,15 @@ import {
 } from "../lib/crm/import";
 
 /**
+ * What the old two-file export is allowed to shrug at.
+ *
+ * Spelled out rather than defaulted. `ug_sales::U036` is one fact about one row
+ * of one export - two named students really do share that ID - and it used to
+ * be a default every caller inherited without seeing it.
+ */
+const OLD_EXPORT_ALLOWANCES = { knownSplitLeadRefs: ["ug_sales::U036"] };
+
+/**
  * The audit of `fa62750` ran the merge against the live export. 43 lead
  * references are shared between the two files, but only 40 joined: U045, U046
  * and U047 are named in `!Dashboard` and nameless in the copy, so keying
@@ -133,9 +142,9 @@ describe("the write boundary refuses an undeclared split", () => {
       ],
       [row("dashboard_copy", 2, { ID: "U046", "S First": "Terrence" })],
     );
-    await expect(writeMergeResult(repo, result)).rejects.toBeInstanceOf(
-      SplitCrmLeadError,
-    );
+    await expect(
+      writeMergeResult(repo, result, OLD_EXPORT_ALLOWANCES),
+    ).rejects.toBeInstanceOf(SplitCrmLeadError);
     expect(leads).toHaveLength(0);
   });
 
@@ -152,7 +161,7 @@ describe("the write boundary refuses an undeclared split", () => {
       ],
       [],
     );
-    await writeMergeResult(repo, result);
+    await writeMergeResult(repo, result, OLD_EXPORT_ALLOWANCES);
     expect(leads).toHaveLength(2);
   });
 

@@ -43,6 +43,15 @@ import {
  * vocabulary.
  */
 
+/**
+ * What the old two-file export is allowed to shrug at.
+ *
+ * Spelled out rather than defaulted. `ug_sales::U036` is one fact about one row
+ * of one export - two named students really do share that ID - and it used to
+ * be a default every caller inherited without seeing it.
+ */
+const OLD_EXPORT_ALLOWANCES = { knownSplitLeadRefs: ["ug_sales::U036"] };
+
 let rowCounter = 0;
 function row(
   source: CrmSourceRow["source"],
@@ -309,9 +318,9 @@ describe("7.5a: nothing is dropped", () => {
     result.reconciliation.rowsRead += 1;
     result.reconciliation.balanced = false;
 
-    await expect(writeMergeResult(repository, result)).rejects.toThrow(
-      UnbalancedCrmImportError,
-    );
+    await expect(
+      writeMergeResult(repository, result, OLD_EXPORT_ALLOWANCES),
+    ).rejects.toThrow(UnbalancedCrmImportError);
     // Not one partial write. A half-finished import that looks finished is the
     // failure this phase names first.
     expect(repository.leads.size).toBe(0);
@@ -329,9 +338,9 @@ describe("7.5a: nothing is dropped", () => {
     // numbers win, so a wrong flag cannot wave a partial import through.
     result.reconciliation.balanced = true;
 
-    await expect(writeMergeResult(repository, result)).rejects.toThrow(
-      UnbalancedCrmImportError,
-    );
+    await expect(
+      writeMergeResult(repository, result, OLD_EXPORT_ALLOWANCES),
+    ).rejects.toThrow(UnbalancedCrmImportError);
     expect(repository.leads.size).toBe(0);
   });
 
@@ -343,16 +352,21 @@ describe("7.5a: nothing is dropped", () => {
     // disagreement, it is not a thing to write through.
     result.reconciliation.balanced = false;
 
-    await expect(writeMergeResult(repository, result)).rejects.toThrow(
-      UnbalancedCrmImportError,
-    );
+    await expect(
+      writeMergeResult(repository, result, OLD_EXPORT_ALLOWANCES),
+    ).rejects.toThrow(UnbalancedCrmImportError);
     expect(repository.leads.size).toBe(0);
   });
 
   it("records the reconciliation for the run it just wrote", async () => {
     const repository = new MemoryCrmRepository();
     const { primary, secondary } = fixture();
-    const result = await importCrmSources(repository, primary, secondary);
+    const result = await importCrmSources(
+      repository,
+      primary,
+      secondary,
+      OLD_EXPORT_ALLOWANCES,
+    );
     expect(repository.runs).toEqual([result.reconciliation]);
   });
 
@@ -422,7 +436,12 @@ describe("7.5a: gaps a mutation sweep found", () => {
   it("imports every new dispute unresolved", async () => {
     const repository = new MemoryCrmRepository();
     const { primary, secondary } = fixture();
-    await importCrmSources(repository, primary, secondary);
+    await importCrmSources(
+      repository,
+      primary,
+      secondary,
+      OLD_EXPORT_ALLOWANCES,
+    );
     expect(repository.disputes.size).toBeGreaterThan(0);
     for (const dispute of repository.disputes.values()) {
       // The working value is not a ruling. Importing it as one would answer a
@@ -650,10 +669,20 @@ describe("7.5a: the import is idempotent and a ruling is an update", () => {
   it("leaves the table identical when run twice", async () => {
     const { primary, secondary } = fixture();
     const repository = new MemoryCrmRepository();
-    await importCrmSources(repository, primary, secondary);
+    await importCrmSources(
+      repository,
+      primary,
+      secondary,
+      OLD_EXPORT_ALLOWANCES,
+    );
     const first = repository.snapshot();
     const second = fixture();
-    await importCrmSources(repository, second.primary, second.secondary);
+    await importCrmSources(
+      repository,
+      second.primary,
+      second.secondary,
+      OLD_EXPORT_ALLOWANCES,
+    );
     expect(repository.snapshot()).toBe(first);
     expect(repository.rejections).toHaveLength(1);
   });
@@ -661,7 +690,12 @@ describe("7.5a: the import is idempotent and a ruling is an update", () => {
   it("applies a ruling as an update, touching no other row", async () => {
     const { primary, secondary } = fixture();
     const repository = new MemoryCrmRepository();
-    const result = await importCrmSources(repository, primary, secondary);
+    const result = await importCrmSources(
+      repository,
+      primary,
+      secondary,
+      OLD_EXPORT_ALLOWANCES,
+    );
     const before = JSON.parse(repository.snapshot()) as {
       leads: [string, StoredCrmLead][];
     };
@@ -712,7 +746,12 @@ describe("7.5a: the import is idempotent and a ruling is an update", () => {
   it("does not lose a ruling when the import runs again", async () => {
     const { primary, secondary } = fixture();
     const repository = new MemoryCrmRepository();
-    const result = await importCrmSources(repository, primary, secondary);
+    const result = await importCrmSources(
+      repository,
+      primary,
+      secondary,
+      OLD_EXPORT_ALLOWANCES,
+    );
     const target = rulingList(result).find(
       (entry) => entry.field === "referrerSource",
     )!;
@@ -724,7 +763,12 @@ describe("7.5a: the import is idempotent and a ruling is an update", () => {
       resolvedAt: new Date("2026-08-28T10:00:00.000Z"),
     });
     const again = fixture();
-    await importCrmSources(repository, again.primary, again.secondary);
+    await importCrmSources(
+      repository,
+      again.primary,
+      again.secondary,
+      OLD_EXPORT_ALLOWANCES,
+    );
     expect(
       repository.disputes.get(`${target.identity}::referrerSource`)?.resolvedBy,
     ).toBe("Ren");

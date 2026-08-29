@@ -17,15 +17,29 @@ import type { TouchRecord } from "./touches";
 
 export type SilenceThresholds = Partial<Record<CrmStatus, number>>;
 
-/** The brief's starting values. To be tuned, which is why they are data. */
+/**
+ * Whetstone's chase cadence, from the CRM Action Sheet v1.0.
+ *
+ * These are the numbers the business actually runs on. They live in the Lists
+ * tab of the rebuilt `!Dashboard` (28 Aug 2026) and drive its own "Chase After"
+ * and "Chase Flag" columns, so the sheet and this clock now chase on one
+ * cadence rather than two.
+ *
+ * They replace the build plan's placeholders, which were uniformly about twice
+ * too slow - Negotiate 3, Active 7, Engage 7, Prospect 14, Cold 30 - and would
+ * have let every live lead sit roughly twice as long as Whetstone's own policy
+ * allows before the clock said anything.
+ *
+ * Still data rather than constants, and still passed in by the caller, because
+ * a cadence a business set once is a cadence it will set again.
+ */
 export const DEFAULT_SILENCE_THRESHOLDS: SilenceThresholds = Object.freeze({
-  Negotiate: 3,
-  Active: 7,
-  Engage: 7,
-  Prospect: 14,
-  Cold: 30,
+  Negotiate: 2,
+  Active: 3,
+  Engage: 3,
+  Prospect: 7,
+  Cold: 15,
 });
-
 /**
  * Why a lead's threshold differs from its stage default.
  *

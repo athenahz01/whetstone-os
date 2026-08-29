@@ -38,7 +38,6 @@ import {
 
 const NOW = new Date("2026-08-28T12:00:00.000Z");
 const DAY = 24 * 60 * 60 * 1000;
-const daysAgo = (days: number) => new Date(NOW.getTime() - days * DAY);
 const FULL_COVERAGE: ScanCoverage = { read: ["calendar", "email"], failed: [] };
 
 let rowCounter = 0;
