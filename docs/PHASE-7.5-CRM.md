@@ -317,7 +317,7 @@ revisable without a re-import, which is what makes waiting unnecessary.
    **This is the one real risk in the phase:** the design rests on the message
    reaching somewhere it gets answered same-day. If email is not that place,
    7.5d fails its own first acceptance box while 7.5a-c still stand.
-3. **Access: Whetstone Gmail and Calendar, read-only.** Genuinely required for
+3. **Access: Whetstone Gmail and Calendar, read-only.** Genuinely required for **Decided 2026-09-02: `athena@whetstoneadmissions.com`, more people later.**
    7.5b; no default can stand in. Note for whoever approves: the records include
    minors and parent contact details.
 

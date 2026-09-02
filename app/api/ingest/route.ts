@@ -1,4 +1,11 @@
 import { BatchAdapter } from "../../../lib/adapters/batch";
+import { PrismaLeadStore } from "../../../lib/core/lead-store";
+import { createAlertsFromEnv } from "../../../lib/core/runtime";
+import { wyzantAlertRuleFromEnv } from "../../../lib/core/wyzant-alert";
+import {
+  runWyzantAlerts,
+  wyzantAlertLogLine,
+} from "../../../lib/core/wyzant-notifier";
 import {
   ADAPTER_EXCEPTION_KINDS,
   parseAdapterExceptions,
@@ -42,6 +49,20 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  // The owner's rule, applied before qualification and independently of it.
+  // A relevant job whose rate does not contradict ours reaches her whatever it
+  // scores; the score is still computed and recorded below, and no longer
+  // decides what she sees. See docs/WYZANT-ALERT-RULE.md.
+  const alerts = createAlertsFromEnv();
+  const wyzant = await runWyzantAlerts({
+    leads: body.leads,
+    rule: wyzantAlertRuleFromEnv(),
+    notifier: alerts,
+    store: new PrismaLeadStore(prisma),
+    now: new Date(),
+  });
+  console.info("[wyzant:alerts]", wyzantAlertLogLine(wyzant));
+
   const prospecting = await runProspecting({
     adapters: [new BatchAdapter(body.leads, exceptions ?? [])],
     trigger: "github-actions-ingest",

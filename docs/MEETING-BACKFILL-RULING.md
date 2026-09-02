@@ -129,3 +129,36 @@ ones do.
   a student and `crm_touches` has nowhere to put prose.
 - A backfilled meeting is keyed on its slot, so it can never overwrite a human
   answering "already spoke to them" on the same day.
+
+---
+
+## Scope correction, added by the auditor 2026-09-02
+
+The executor flagged that `M2 Med` and `M3 Med` counts were unstated, so "26" was
+firm for `M1` only. I counted every slot on both tabs from the live sheet.
+
+| tab / slot | converts (date + closer) | needs a date ruling | dated but unsigned |
+|---|---|---|---|
+| UG Sales M1 | 8 | 26 | 0 |
+| UG Sales M2 | 6 | 3 | 1 |
+| UG Sales M3 | 3 | 2 | 1 |
+| G Sales M1 | 4 | 0 | 0 |
+| **total** | **21** | **31** | **2** |
+
+Three things change.
+
+**21 touches convert, not 8.** The handoff said "eight leads gain a real
+first-meeting date". Counting second and third meetings and the graduate tab, it
+is 21. The first daily message is correspondingly less blind than expected.
+
+**31 rows need this ruling, not 26.** The four options below are unchanged and
+the recommendation is unchanged; only the number they apply to is larger.
+
+**Two rows are dated but unsigned, and this document does not cover them.** They
+hold a real date and no closer, so the code skips them as `no-closer` - correctly,
+since `asserted` has to name a human. But that is a second, smaller ruling nobody
+has been asked for: whether a dated meeting with no recorded closer should be
+converted anyway under a house attribution, or stay out. Two rows, both second or
+third meetings on UG Sales.
+
+Counted directly from `!Dashboard rebuild`, not inferred. Status stays open.

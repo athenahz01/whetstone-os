@@ -73,6 +73,9 @@ describe("Wyzant extraction against the saved sanitized page", () => {
         text: "Placeholder inquiry text. Structure preserved; wording replaced.",
         url: "https://highered.wyzant.com/tutor/jobs/8394201",
         postedAt: "2026-08-27T13:00:00.000Z",
+        // Both cards on the real board read `None`. That is the common case
+        // the owner's rule exists for, not an edge case.
+        recommendedRate: "Recommended rate: None",
       },
       {
         nativeId: "8393796",
@@ -82,6 +85,7 @@ describe("Wyzant extraction against the saved sanitized page", () => {
         text: "Placeholder inquiry text. Structure preserved; wording replaced.",
         url: "https://highered.wyzant.com/tutor/jobs/8393796",
         postedAt: "2026-08-27T06:00:00.000Z",
+        recommendedRate: "Recommended rate: None",
       },
     ]);
     await page.close();

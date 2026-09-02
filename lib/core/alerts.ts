@@ -43,6 +43,24 @@ export interface ExceptionAlertService {
  * the same reason nothing else here does: the operator inbox is the only
  * address this system can reach, and this message names minors.
  */
+/**
+ * A Wyzant job that met the owner's send rule.
+ *
+ * Its own method rather than a reuse of `notify`, because `notify` is gated on
+ * a score and the owner asked for the score to stop deciding what she sees.
+ * Takes no recipient, for the same reason nothing else here does.
+ */
+export interface WyzantJobAlertService {
+  isEnabled(): boolean;
+  notifyWyzantJob(job: {
+    subject: string;
+    location: string;
+    rate: string;
+    postedAt: string;
+    url: string;
+  }): Promise<void>;
+}
+
 export interface DigestAlertService {
   isEnabled(): boolean;
   notifyDigest(subject: string, body: string): Promise<void>;
@@ -77,7 +95,11 @@ export interface EmailAlertServiceOptions {
 }
 
 export class EmailAlertService
-  implements AlertService, ExceptionAlertService, DigestAlertService
+  implements
+    AlertService,
+    ExceptionAlertService,
+    DigestAlertService,
+    WyzantJobAlertService
 {
   private readonly from?: string;
   private readonly to?: string;
@@ -129,6 +151,27 @@ export class EmailAlertService
     await this.send(ready, `Exception - ${title}`, [
       detail,
       `Review: ${ready.reviewBaseUrl}`,
+    ]);
+  }
+
+  async notifyWyzantJob(job: {
+    subject: string;
+    location: string;
+    rate: string;
+    postedAt: string;
+    url: string;
+  }): Promise<void> {
+    const ready = this.readyConfig();
+    if (!ready) return;
+
+    // Subject, rate, age and link. No learner name and no job text: she opens
+    // the board to read those, and this is a pointer rather than a copy.
+    await this.send(ready, `Wyzant: ${job.subject} - ${job.rate}`, [
+      `Subject: ${job.subject}`,
+      `Rate: ${job.rate}`,
+      `Location: ${job.location}`,
+      `Posted: ${job.postedAt}`,
+      `Job: ${job.url}`,
     ]);
   }
 

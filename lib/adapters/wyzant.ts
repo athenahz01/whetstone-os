@@ -116,7 +116,14 @@ export class WyzantAdapter implements ChannelAdapter {
       url: job.url,
       postedAt: job.postedAt,
       tutorId: this.options.tutorId,
-      raw: { nativeId: job.nativeId, lessonType: job.lessonType },
+      // The rate rides on the lead so the ingest side can apply the rule.
+      // It crosses the runner boundary as the board's own words and is read
+      // into a closed vocabulary on arrival, never before.
+      raw: {
+        nativeId: job.nativeId,
+        lessonType: job.lessonType,
+        recommendedRate: job.recommendedRate,
+      },
     }));
   }
 
@@ -156,6 +163,16 @@ export interface WyzantJobSnapshot {
   url: string;
   postedAt: string;
   lessonType?: WyzantLessonType;
+  /**
+   * The board's `Recommended rate` cell, verbatim.
+   *
+   * Carried raw and read by `readRecommendedRate` rather than parsed here,
+   * because the adapter's job is to say what the page showed and the rule's job
+   * is to decide what it means. A cell we cannot read has to stay
+   * distinguishable from a cell that said `None`, and that distinction is lost
+   * the moment extraction returns a number or nothing.
+   */
+  recommendedRate?: string;
 }
 
 export interface WyzantExtractionFailure {
@@ -260,6 +277,18 @@ export async function extractJobs(
               )?.[1]
               ?.trim() ||
             "Wyzant learner";
+          // `<i class="wc-usd"></i> Recommended rate: None` in the real
+          // capture. Matched on the label rather than the icon, so a styling
+          // change to the icon does not silently stop reading the field.
+          const recommendedRate = Array.from(
+            card.querySelectorAll("span, div, p"),
+          )
+            .map((node) => node.textContent?.replace(/\s+/g, " ").trim() ?? "")
+            .filter((value) => /recommended\s+rate\s*:/i.test(value))
+            // Ancestors match too and drag their siblings' text along with
+            // them. The shortest match is the element that holds the field and
+            // nothing else.
+            .sort((left, right) => left.length - right.length)[0];
           const time = card.querySelector("time");
           const postedAt =
             time?.getAttribute("datetime") ||
@@ -280,6 +309,7 @@ export async function extractJobs(
               location,
               url: href,
               postedAt,
+              recommendedRate,
             },
           ];
         }),
