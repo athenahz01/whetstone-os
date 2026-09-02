@@ -1,4 +1,9 @@
 import {
+  affiliateReference,
+  rebuiltColumnMap,
+  referenceColumnFor,
+} from "./rebuilt-schema";
+import {
   readReferrerSource,
   readStatus,
   type CrmReferrerSource,
@@ -26,7 +31,17 @@ import {
  *   as an update rather than a re-import.
  */
 
-export type CrmTab = "ug_sales" | "g_sales" | "affiliate";
+/**
+ * The tabs that hold rows.
+ *
+ * A const array as well as a type, so a test can assert at runtime that the
+ * derived tabs - `Overview` and `Action Queue`, which are formulas over
+ * `UG Sales` - are not among them. Importing either would write every lead a
+ * second time.
+ */
+export const CRM_TABS = ["ug_sales", "g_sales", "affiliate"] as const;
+
+export type CrmTab = (typeof CRM_TABS)[number];
 
 /**
  * Which file a value came from. `!Dashboard` is the working default.
@@ -95,18 +110,54 @@ export const CONTACT_FIELDS = [
   "parent1Phone",
 ] as const;
 
+/**
+ * Columns the rebuilt sheet has and the fork never did.
+ *
+ * The old sheet had nowhere to put most of these, which is why the Action Sheet
+ * asked for a rebuild rather than a tidy-up. `region` and `school` replace the
+ * old single `regionSchool`, which was one column holding two facts; both names
+ * exist because the old export still imports through the old map.
+ */
+export const REBUILT_FIELDS = [
+  "region",
+  "school",
+  "hsYear",
+  "parent1First",
+  "parent1Last",
+  "parent1Relation",
+  "parent2First",
+  "parent2Last",
+  "parent2Relation",
+  "parent2Phone",
+  "contactMethod",
+  "referrer",
+  "painNeed",
+  "notes",
+  "target",
+  "programType",
+  "field",
+  "contractStart",
+  "contractEnd",
+  "renewalReview",
+  "leadsReferred",
+  "leadsWon",
+  "leadsLost",
+  "leadsLive",
+] as const;
+
 export const MERGED_FIELDS = [
   "studentFirst",
   "studentLast",
   ...FUNNEL_FIELDS,
   ...ACADEMIC_FIELDS,
   ...CONTACT_FIELDS,
+  ...REBUILT_FIELDS,
 ] as const;
 
 export type CrmField = (typeof MERGED_FIELDS)[number];
 
-/** Sheet column headings, mapped to field names. */
-const COLUMN_TO_FIELD: Record<string, CrmField> = {
+/** The old two-file export's column headings, mapped to field names. */
+const LEGACY_COLUMN_TO_FIELD: Record<string, CrmField> = {
   "S First": "studentFirst",
   "S Last": "studentLast",
   Status: "status",
@@ -131,6 +182,33 @@ const COLUMN_TO_FIELD: Record<string, CrmField> = {
   "S Phone": "studentPhone",
   "P1 Phone": "parent1Phone",
 };
+
+/**
+ * The map a row is read through, chosen by where the row came from.
+ *
+ * Two sheets with two header vocabularies, so one global map cannot serve both.
+ * Choosing per row rather than per import means a run that mixes sources is a
+ * type error rather than a silent half-read, and `importSingleSource` refuses
+ * one anyway.
+ */
+function columnMapFor(row: CrmSourceRow): Record<string, CrmField> {
+  return row.source === "dashboard_rebuilt"
+    ? rebuiltColumnMap(row.tab)
+    : LEGACY_COLUMN_TO_FIELD;
+}
+
+/**
+ * The column holding a row's own reference.
+ *
+ * `Affiliate` on the rebuilt sheet has no `ID` column - a partner is identified
+ * by name - so reading `ID` there would reject all twenty-one rows for having
+ * no reference while the reconciliation balanced perfectly.
+ */
+function referenceOf(row: CrmSourceRow): string {
+  if (row.source !== "dashboard_rebuilt") return cell(row, "ID");
+  if (row.tab === "affiliate") return affiliateReference(row);
+  return cell(row, "ID");
+}
 
 export interface CrmDispute {
   field: CrmField;
@@ -309,7 +387,8 @@ export function unmappedColumns(rows: CrmSourceRow[]): CrmColumnUsage[] {
   const filled = new Map<string, number>();
   for (const row of rows) {
     for (const [column, value] of Object.entries(row.cells)) {
-      if (column in COLUMN_TO_FIELD || column === "ID") continue;
+      if (column in columnMapFor(row)) continue;
+      if (column === referenceColumnFor(row.tab) || column === "ID") continue;
       if (!value?.trim()) continue;
       filled.set(column, (filled.get(column) ?? 0) + 1);
     }
@@ -321,7 +400,7 @@ export function unmappedColumns(rows: CrmSourceRow[]): CrmColumnUsage[] {
 
 function fieldsFrom(row: CrmSourceRow): Partial<Record<CrmField, string>> {
   const values: Partial<Record<CrmField, string>> = {};
-  for (const [column, field] of Object.entries(COLUMN_TO_FIELD)) {
+  for (const [column, field] of Object.entries(columnMapFor(row))) {
     const value = cell(row, column);
     if (value) values[field] = value;
   }
@@ -349,7 +428,7 @@ export function mergeCrmSources(
   // order, which is not a property of the data.
   const namedIdentities = new Map<string, string[]>();
   for (const row of [...primary, ...secondary]) {
-    const leadRef = cell(row, "ID").trim().toUpperCase();
+    const leadRef = referenceOf(row).trim().toUpperCase();
     if (!leadRef) continue;
     const name = normalizeName(
       `${cell(row, "S First")} ${cell(row, "S Last")}`,
@@ -368,13 +447,16 @@ export function mergeCrmSources(
   }
 
   const ingest = (row: CrmSourceRow) => {
-    const leadRef = cell(row, "ID");
+    const leadRef = referenceOf(row);
     if (!leadRef) {
       rejections.push({
         source: row.source,
         tab: row.tab,
         rowNumber: row.rowNumber,
-        reason: "row has no ID",
+        // Named rather than assumed, because the column differs by tab and a
+        // reason saying "no ID" about a sheet with no ID column sends whoever
+        // reads it looking for something that was never there.
+        reason: `row has no ${referenceColumnFor(row.tab)}`,
       });
       return;
     }

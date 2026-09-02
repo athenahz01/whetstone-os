@@ -9,11 +9,24 @@ import {
   type StoredCrmLead,
 } from "../lib/crm/import";
 import {
+  CRM_TABS,
+  MERGED_FIELDS,
   mergeCrmSources,
   unmappedColumns,
   type CrmRejection,
   type CrmSourceRow,
 } from "../lib/crm/merge";
+import {
+  affiliateReference,
+  IMPORTABLE_TABS,
+  NON_IMPORTABLE_TABS,
+  REBUILT_AFFILIATE_COLUMN_TO_FIELD,
+  REBUILT_COLUMN_TO_FIELD,
+  REBUILT_DERIVED_COLUMNS,
+  REBUILT_IGNORED_COLUMNS,
+  REBUILT_MEETING_COLUMNS,
+  referenceColumnFor,
+} from "../lib/crm/rebuilt-schema";
 
 /**
  * Retargeting the importer at one authoritative sheet.
@@ -253,10 +266,14 @@ describe("7.5a retarget: a header nobody reads is data arriving nowhere", () => 
   });
 
   it("carries the unmapped columns on the reconciliation", () => {
-    const rows = [rebuilt({ ID: "U001", "S First": "Ada", Region: "NY" })];
+    // `Region` is a real column on the rebuilt sheet now, so an unmapped header
+    // has to be something the map genuinely does not know.
+    const rows = [
+      rebuilt({ ID: "U001", "S First": "Ada", "Invented Column": "NY" }),
+    ];
     const result = mergeCrmSources(rows, []);
     expect(result.reconciliation.unmappedColumns).toEqual([
-      { column: "Region", filledCells: 1 },
+      { column: "Invented Column", filledCells: 1 },
     ]);
     // And it still balances, which is exactly why the count is needed: balance
     // cannot see a column nobody read.
@@ -291,6 +308,281 @@ describe("7.5a retarget: a header nobody reads is data arriving nowhere", () => 
     await expect(
       writeMergeResult(repository, result, NOTHING_ALLOWED),
     ).rejects.toThrow(UnmappedCrmColumnError);
+  });
+});
+
+describe("7.5a retarget: the sheet's own formulas are not data", () => {
+  const ugRow = (extra: Record<string, string>) =>
+    rebuilt({
+      ID: "U001",
+      "S First": "Ada",
+      "S Last": "Sparrow",
+      Status: "Active",
+      ...extra,
+    });
+
+  it("maps none of the six computed columns to a field", () => {
+    for (const column of REBUILT_DERIVED_COLUMNS) {
+      expect(
+        REBUILT_COLUMN_TO_FIELD,
+        `${column} must not become a stored field`,
+      ).not.toHaveProperty(column);
+    }
+  });
+
+  it("refuses to write them when they are not declared", async () => {
+    // `Days Quiet` is the spreadsheet's own silence clock and
+    // `S5.silence-clock` computes the same number from `crm_touches`. Storing
+    // the sheet's answer next to the inputs ours is computed from is the fork
+    // again, one table down.
+    await expect(
+      importSingleSource(
+        new MemoryCrmRepository(),
+        [ugRow({ "Days Quiet": "231", "Chase Flag": "TRUE" })],
+        NOTHING_ALLOWED,
+      ),
+    ).rejects.toThrow(UnmappedCrmColumnError);
+  });
+
+  it("imports the sheet once they are declared ignored", async () => {
+    const repository = new MemoryCrmRepository();
+    await importSingleSource(
+      repository,
+      [
+        ugRow({
+          "Last Touch": "2026-01-05",
+          "Days Quiet": "231",
+          "Chase After": "2026-09-04",
+          "Chase Flag": "TRUE",
+          Contactable: "Yes",
+          "Data Flags": "no email",
+          _key: "u001-ada",
+        }),
+      ],
+      { knownSplitLeadRefs: [], ignoredColumns: [...REBUILT_IGNORED_COLUMNS] },
+    );
+    const lead = [...repository.leads.values()][0];
+    expect(lead?.leadRef).toBe("U001");
+    // Present on the sheet, absent from the record. Declared, not dropped.
+    expect(JSON.stringify(lead?.values)).not.toContain("231");
+    expect(JSON.stringify(lead?.values)).not.toContain("2026-09-04");
+  });
+
+  it("leaves the meeting columns to the touch record", async () => {
+    // 7.5b already asserts no CRM field exists for the milestone columns, and
+    // `meetingMilestones()` derives them from `crm_touches`. Mapping them here
+    // would break a standing lock, so they are declared ignored and the touch
+    // scan is what fills them.
+    for (const column of REBUILT_MEETING_COLUMNS) {
+      expect(REBUILT_COLUMN_TO_FIELD).not.toHaveProperty(column);
+      expect(REBUILT_IGNORED_COLUMNS).toContain(column);
+    }
+    const repository = new MemoryCrmRepository();
+    await importSingleSource(
+      repository,
+      [ugRow({ "M1 Date": "2026-02-11", "M1 Closer": "R" })],
+      { knownSplitLeadRefs: [], ignoredColumns: [...REBUILT_IGNORED_COLUMNS] },
+    );
+    expect(JSON.stringify([...repository.leads.values()])).not.toContain(
+      "2026-02-11",
+    );
+  });
+
+  it("names every ignored column, so none of it is a silent drop", () => {
+    // The list is the record of the decision. A column that stops appearing
+    // here starts failing the import instead of quietly vanishing.
+    for (const column of REBUILT_DERIVED_COLUMNS) {
+      expect(REBUILT_IGNORED_COLUMNS).toContain(column);
+    }
+    expect(REBUILT_IGNORED_COLUMNS).toContain("_key");
+  });
+});
+
+describe("7.5a retarget: the derived tabs are not import sources", () => {
+  it("keeps Overview and Action Queue out of the importable tabs", () => {
+    // They are formulas over `UG Sales`. Importing either would write every
+    // lead a second time - the duplication this phase exists to end, arriving
+    // through the front door.
+    for (const tab of NON_IMPORTABLE_TABS) {
+      expect(CRM_TABS as readonly string[]).not.toContain(tab);
+      expect(IMPORTABLE_TABS as readonly string[]).not.toContain(tab);
+    }
+    expect(NON_IMPORTABLE_TABS).toContain("Overview");
+    expect(NON_IMPORTABLE_TABS).toContain("Action Queue");
+  });
+
+  it("admits exactly the three tabs that hold rows", () => {
+    expect([...IMPORTABLE_TABS].sort()).toEqual([
+      "affiliate",
+      "g_sales",
+      "ug_sales",
+    ]);
+    expect([...CRM_TABS].sort()).toEqual([...IMPORTABLE_TABS].sort());
+  });
+});
+
+describe("7.5a retarget: Affiliate has no ID column", () => {
+  const affiliate = (cells: Record<string, string | undefined>) => ({
+    source: "dashboard_rebuilt" as const,
+    tab: "affiliate" as const,
+    rowNumber: 1,
+    cells,
+  });
+
+  it("keys the tab on the column it actually has", () => {
+    expect(referenceColumnFor("affiliate")).toBe("Full name");
+    expect(referenceColumnFor("ug_sales")).toBe("ID");
+    expect(referenceColumnFor("g_sales")).toBe("ID");
+  });
+
+  it("imports a partner rather than rejecting them for having no ID", async () => {
+    const repository = new MemoryCrmRepository();
+    await importSingleSource(
+      repository,
+      [
+        affiliate({
+          "Full name": "Bright Futures Advising",
+          First: "Bright",
+          Last: "Futures Advising",
+          Type: "Agency",
+          "Leads referred": "7",
+          Won: "2",
+          "Lost / NQ": "3",
+          "Still live": "2",
+          "Last lead date": "2026-05-04",
+          Notes: "quarterly check-in",
+        }),
+      ],
+      { knownSplitLeadRefs: [], ignoredColumns: [...REBUILT_IGNORED_COLUMNS] },
+    );
+    // Reading `ID` here would have rejected all twenty-one rows for having no
+    // reference, and the reconciliation would have balanced perfectly while the
+    // whole tab landed in the rejection list.
+    expect(repository.rejections).toHaveLength(0);
+    expect(repository.leads.size).toBe(1);
+    const lead = [...repository.leads.values()][0];
+    expect(lead?.leadRef).toBe("BRIGHT FUTURES ADVISING");
+    expect(lead?.values.leadsReferred).toBe("7");
+  });
+
+  it("falls back to the first and last name when Full name is blank", () => {
+    expect(
+      affiliateReference(affiliate({ First: "Bright", Last: "Futures" })),
+    ).toBe("Bright Futures");
+    expect(
+      affiliateReference(
+        affiliate({ "Full name": "Bright Futures", First: "ignored" }),
+      ),
+    ).toBe("Bright Futures");
+  });
+
+  it("rejects a partner row that names nobody, and says which column", () => {
+    const result = mergeCrmSources([affiliate({ Type: "Agency" })], []);
+    expect(result.rejections).toEqual([
+      {
+        source: "dashboard_rebuilt",
+        tab: "affiliate",
+        rowNumber: 1,
+        // Not "row has no ID". There is no ID column on this tab, and a reason
+        // naming one sends whoever reads it looking for something that was
+        // never there.
+        reason: "row has no Full name",
+      },
+    ]);
+  });
+
+  it("reads the partner tab through its own column map", () => {
+    // Ten columns, and none of them is a student. `Leads referred` and its
+    // siblings are counts, which the sales tabs have no equivalent of.
+    expect(REBUILT_AFFILIATE_COLUMN_TO_FIELD).not.toHaveProperty("S First");
+    expect(REBUILT_AFFILIATE_COLUMN_TO_FIELD).toHaveProperty("Leads referred");
+    expect(REBUILT_COLUMN_TO_FIELD).not.toHaveProperty("Leads referred");
+  });
+});
+
+describe("7.5a retarget: the rebuilt headers are the ones on the sheet", () => {
+  it("maps every renamed column to the field it used to fill", () => {
+    // The renames the schema document lists. Each one would silently import as
+    // blank if the map still expected the old name.
+    expect(REBUILT_COLUMN_TO_FIELD["S Last"]).toBe("studentLast");
+    expect(REBUILT_COLUMN_TO_FIELD["P1 Last"]).toBe("parent1Last");
+    expect(REBUILT_COLUMN_TO_FIELD["Due Date (as entered)"]).toBe("dueDate");
+    expect(REBUILT_COLUMN_TO_FIELD["SAT / GRE"]).toBe("sat");
+    expect(REBUILT_COLUMN_TO_FIELD["Pain / Need"]).toBe("painNeed");
+    // The old bare names are gone from the rebuilt map.
+    for (const gone of ["Due Date", "SAT", "Region School", "1M Date"]) {
+      expect(REBUILT_COLUMN_TO_FIELD).not.toHaveProperty(gone);
+    }
+  });
+
+  it("splits Region and School, which used to be one column", () => {
+    expect(REBUILT_COLUMN_TO_FIELD.Region).toBe("region");
+    expect(REBUILT_COLUMN_TO_FIELD.School).toBe("school");
+    // The old field survives because the old export still imports through the
+    // old map, and one column holding two facts is what it held.
+    expect(MERGED_FIELDS as readonly string[]).toContain("regionSchool");
+  });
+
+  it("carries the academic columns on the canonical sheet", async () => {
+    // These lived only in `Copy of !Dashboard`. Their being here is why the
+    // merge stops being a reconciliation and becomes an import.
+    const repository = new MemoryCrmRepository();
+    await importSingleSource(
+      repository,
+      [
+        {
+          source: "dashboard_rebuilt" as const,
+          tab: "g_sales" as const,
+          rowNumber: 1,
+          cells: {
+            ID: "G012",
+            "S First": "Cy",
+            "S Last": "Okafor",
+            Status: "Engage",
+            "SAT / GRE": "328",
+            Capstone: "Robotics",
+            "Admission Status": "Applied",
+          },
+        },
+      ],
+      { knownSplitLeadRefs: [], ignoredColumns: [...REBUILT_IGNORED_COLUMNS] },
+    );
+    const lead = [...repository.leads.values()][0];
+    expect(lead?.values.sat).toBe("328");
+    expect(lead?.values.capstone).toBe("Robotics");
+    expect(lead?.values.admissionStatus).toBe("Applied");
+    expect(repository.disputes.size).toBe(0);
+  });
+
+  it("still reads the old export through the old map", () => {
+    // The rebuilt map is chosen per row, so the historical two-file import is
+    // unaffected by any of this.
+    const legacy = mergeCrmSources(
+      [
+        {
+          source: "dashboard" as const,
+          tab: "ug_sales" as const,
+          rowNumber: 1,
+          cells: { ID: "U001", "S First": "Ada", "Due Date": "2026-07-15" },
+        },
+      ],
+      [],
+    );
+    expect(legacy.leads[0]?.values.dueDate).toBe("2026-07-15");
+    expect(legacy.reconciliation.unmappedColumns).toEqual([]);
+  });
+
+  it("does not read a rebuilt row through the old map", () => {
+    // The old map has no `Due Date (as entered)`, so a rebuilt row read through
+    // it would import blank and balance perfectly.
+    const row = rebuilt({
+      ID: "U001",
+      "S First": "Ada",
+      "Due Date (as entered)": "2026-07-15",
+    });
+    expect(mergeCrmSources([row], []).leads[0]?.values.dueDate).toBe(
+      "2026-07-15",
+    );
   });
 });
 
