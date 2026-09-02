@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { chromium, type Browser } from "playwright";
+import { chromium, type Browser, type BrowserContext } from "playwright";
 import {
   assertAuthenticatedWyzantMessagesUrl,
   DEFAULT_WYZANT_MESSAGES_URL,
@@ -59,30 +59,65 @@ const scope = {
 };
 
 /**
- * One browser for the tests that only need a page.
+ * One browser for the whole file.
  *
  * This file launched seven. Isolated that is about 9.8 seconds; under
- * full-suite contention it is the dominant cost, and the file fails
+ * full-suite contention it is the dominant cost, and the file failed
  * intermittently - not at a timer, but because launching Chromium seven times
  * on a loaded machine is slow enough to exhaust the per-test budget. The same
  * pressure makes `wyzant-extraction-fixture.test.ts` fail its teardown hook.
  *
- * Four of the seven launch a browser, open a page and close both. Those share
- * safely and are switched over here, following the pattern that file already
- * uses.
+ * Four of the seven only needed a page, and share directly.
  *
- * **The other three cannot share, and the reason is not obvious.** They expose
- * `close: async () => actualBrowser.close()` as the adapter's own close method,
- * and the production code calls it - so a shared browser would be closed
- * mid-file by the code under test. Sharing them would mean changing what
- * `close` does, which is part of what those tests exercise. They keep their own
- * launches on purpose.
+ * The other three hand a browser to the adapter, which closes it when it is
+ * done. That is why they looked unshareable: the code under test would have
+ * closed the file's browser out from under every later test. But the contract
+ * the adapter needs is "release the session you gave me", not "end the
+ * process", and `sharedSession` below satisfies it by closing the contexts it
+ * handed out. A context is what holds the routes and pages a test set up, so
+ * closing it is the meaningful cleanup; the browser underneath is the file's.
+ *
+ * Nothing was weakened to get there. No test asserted the browser itself was
+ * closed - they assert on what `poll()` returned, the exceptions it drained,
+ * and how often the factory was called. The one test that does assert `close`
+ * was called uses pure fakes and never launches anything.
  */
 let sharedBrowser: Awaited<ReturnType<typeof chromium.launch>>;
 
 beforeAll(async () => {
   sharedBrowser = await chromium.launch({ headless: true });
 });
+
+/**
+ * A browser session for a test that hands one to the adapter.
+ *
+ * The adapter closes the session it was given, which is correct: it opened it.
+ * These three tests used to satisfy that by launching a browser each and
+ * letting `close` end it, and that is why they could not share - the code under
+ * test would have closed the file's browser out from under every later test.
+ *
+ * The contract the adapter needs is "release what you gave me", not "end the
+ * process". Closing the contexts this session handed out satisfies it exactly,
+ * and a context is what actually holds the routes and pages a test set up. The
+ * browser underneath is the file's, and stays open.
+ *
+ * No test asserts the browser itself was closed; they assert on what `poll()`
+ * returned, on the exceptions it drained, and on how often the factory was
+ * called. All three still hold.
+ */
+function sharedSession() {
+  const contexts: BrowserContext[] = [];
+  return {
+    newContext: async (options: Parameters<Browser["newContext"]>[0]) => {
+      const context = await sharedBrowser.newContext(options);
+      contexts.push(context);
+      return context;
+    },
+    close: async () => {
+      await Promise.all(contexts.splice(0).map((context) => context.close()));
+    },
+  };
+}
 
 afterAll(async () => {
   await sharedBrowser.close();
@@ -221,11 +256,11 @@ describe("Wyzant operational hardening", () => {
   });
 
   it("records both board and extracted counts when pagination cannot reconcile inventory", async () => {
-    const actualBrowser = await chromium.launch({ headless: true });
+    const session = sharedSession();
     const browserFactory = vi.fn(async () => {
       return {
         newContext: async (options: Parameters<Browser["newContext"]>[0]) => {
-          const context = await actualBrowser.newContext(options);
+          const context = await session.newContext(options);
           await context.route(
             "https://highered.wyzant.com/tutor/jobs**",
             (route) =>
@@ -239,7 +274,7 @@ describe("Wyzant operational hardening", () => {
           );
           return context;
         },
-        close: async () => actualBrowser.close(),
+        close: session.close,
       } as unknown as Browser;
     });
     const adapter = new WyzantAdapter({
@@ -298,11 +333,11 @@ describe("Wyzant operational hardening", () => {
   });
 
   it("drains one label-only exception for subjects rejected during a poll", async () => {
-    const actualBrowser = await chromium.launch({ headless: true });
+    const session = sharedSession();
     const browserFactory = vi.fn(async () => {
       return {
         newContext: async (options: Parameters<Browser["newContext"]>[0]) => {
-          const context = await actualBrowser.newContext(options);
+          const context = await session.newContext(options);
           await context.route(
             "https://highered.wyzant.com/tutor/jobs**",
             (route) =>
@@ -318,7 +353,7 @@ describe("Wyzant operational hardening", () => {
           );
           return context;
         },
-        close: async () => actualBrowser.close(),
+        close: session.close,
       } as unknown as Browser;
     });
     const adapter = new WyzantAdapter({
@@ -402,11 +437,11 @@ describe("Wyzant operational hardening", () => {
   }, 15_000);
 
   it("lets the Messages adapter finish after its old page redirects during extraction", async () => {
-    const actualBrowser = await chromium.launch({ headless: true });
+    const session = sharedSession();
     const browserFactory = vi.fn(async () => {
       return {
         newContext: async (options: Parameters<Browser["newContext"]>[0]) => {
-          const context = await actualBrowser.newContext(options);
+          const context = await session.newContext(options);
           await context.route(
             "https://www.wyzant.com/tutor/messaging",
             async (route) =>
@@ -449,7 +484,7 @@ describe("Wyzant operational hardening", () => {
           );
           return context;
         },
-        close: async () => actualBrowser.close(),
+        close: session.close,
       } as unknown as Browser;
     });
 

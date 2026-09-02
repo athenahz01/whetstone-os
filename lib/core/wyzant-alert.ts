@@ -36,7 +36,22 @@ export const DEFAULT_WYZANT_MIN_RATE = 200;
  * disappearing, because a job that vanishes with no row is the defect this
  * project has found in every phase.
  */
-export const WYZANT_SUPPRESSION_REASONS = ["rate_below_floor"] as const;
+export const WYZANT_SUPPRESSION_REASONS = [
+  "rate_below_floor",
+  /**
+   * The kill switch is engaged.
+   *
+   * Added by the audit of the alert-rule pass. The alert runs before
+   * `runProspecting`, which is where the governor and therefore the kill switch
+   * live, so tripping the switch stopped qualification and drafting and left
+   * these emails sending. The owner asked for the alert not to be gated by the
+   * *score*; that is separable from it not being gated by the *kill switch*,
+   * and a safety control that no longer covers a path is not a capacity
+   * question. Suppressed with a reason rather than skipped, so a run under the
+   * kill switch still balances and still says what it held back.
+   */
+  "kill_switch_engaged",
+] as const;
 export type WyzantSuppressionReason =
   (typeof WYZANT_SUPPRESSION_REASONS)[number];
 

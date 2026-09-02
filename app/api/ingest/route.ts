@@ -11,6 +11,7 @@ import {
   parseAdapterExceptions,
 } from "../../../lib/core/adapter-exceptions";
 import { prisma } from "../../../lib/core/db";
+import { KILL_SWITCH_KEY, PrismaFlagStore } from "../../../lib/core/governor";
 import {
   recordPollHeartbeat,
   WYZANT_POLL_HEARTBEAT,
@@ -54,12 +55,19 @@ export async function POST(request: Request) {
   // scores; the score is still computed and recorded below, and no longer
   // decides what she sees. See docs/WYZANT-ALERT-RULE.md.
   const alerts = createAlertsFromEnv();
+  // The kill switch lives in the governor, which only `runProspecting` below
+  // consults. Without this read, tripping the switch stopped qualification and
+  // drafting and left these emails sending.
+  const killSwitchEngaged = await new PrismaFlagStore(prisma).isEnabled(
+    KILL_SWITCH_KEY,
+  );
   const wyzant = await runWyzantAlerts({
     leads: body.leads,
     rule: wyzantAlertRuleFromEnv(),
     notifier: alerts,
     store: new PrismaLeadStore(prisma),
     now: new Date(),
+    killSwitchEngaged,
   });
   console.info("[wyzant:alerts]", wyzantAlertLogLine(wyzant));
 

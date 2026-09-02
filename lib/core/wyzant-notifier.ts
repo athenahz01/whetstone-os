@@ -5,7 +5,11 @@ import {
   type WyzantAlertRule,
   type WyzantSuppressionReason,
 } from "./wyzant-alert";
-import { describeRate, type WyzantRate } from "./wyzant-rate";
+import {
+  describeRate,
+  readRecommendedRate,
+  type WyzantRate,
+} from "./wyzant-rate";
 
 /**
  * Emailing Athena about a Wyzant job.
@@ -84,12 +88,30 @@ export async function runWyzantAlerts(input: {
   store: Pick<LeadStore, "reserveAlert" | "markAlerted">;
   now: Date;
   channel?: string;
+  /**
+   * The governor's kill switch, read by the caller.
+   *
+   * Passed in rather than read here so this stays a pure function over its
+   * inputs, and required to be explicit at the call site so no caller inherits
+   * "off" by forgetting - the trap the `ScanCoverage` finding named.
+   */
+  killSwitchEngaged?: boolean;
 }): Promise<WyzantAlertRunResult> {
   const channel = input.channel ?? "wyzant";
   const outcomes: WyzantAlertOutcome[] = [];
 
   for (const lead of input.leads) {
     if (lead.channel !== channel) continue;
+
+    if (input.killSwitchEngaged) {
+      outcomes.push({
+        leadId: lead.id,
+        rate: readRecommendedRate(rateOf(lead)),
+        sent: false,
+        reason: "kill_switch_engaged",
+      });
+      continue;
+    }
 
     const decision = wyzantAlertDecision(rateOf(lead), input.rule);
     if (!decision.send) {
