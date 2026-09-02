@@ -46,28 +46,95 @@ result you did not run.
 
 ## Where things stand
 
-Phase 0 is complete and audited. Phase 1 came back **FIX** with two items, and
-Codex had substantially finished both before it stopped. The working tree is
-uncommitted and 15 test files / 33 tests pass, but production type checking
-fails, so the tree does not build.
+Last updated 2026-08-27 by the auditor. Keep this current; a stale section here
+is read as instruction by the next executor.
 
-Read `docs/PHASE-1-HANDOFF.md` for the exact punch-list. In short:
+Phases 0 through 7 are complete and audited, and **all of 7.5 is built and
+audited**. HEAD is `1831727` plus an uncommitted auditor pass. The test baseline
+is **46 files / 680 tests / 0 skipped**; report the exact counts in every handoff
+and say if they moved.
 
-1. `pnpm prisma:generate` - the `PollHeartbeat` model is in the schema and the
-   migration, but the client was never regenerated, so `prisma.pollHeartbeat`
-   does not type. Four errors disappear with this one command.
-2. `lib/core/alerts.ts` around lines 62 to 68 - `ready()` is a boolean method, so
-   TypeScript does not narrow `this.client` or `this.chatId` through it. Codex
-   patched `reviewBaseUrl` with a non-null assertion and missed the other two.
-   Prefer destructuring locals and checking those over adding more `!`.
-3. `tests/wyzant-messages-adapter.test.ts` - remove the unused
-   `StubAlertService`.
-4. `pnpm format` - five files.
+This section was three commits and 257 tests out of date until 2026-08-27, and
+an executor read it while working. Update it in the same pass that moves HEAD.
 
-Then `pnpm verify`, `pnpm build`, commit, and re-print the Phase 1 handoff.
+All six migrations are deployed to production. **U6 and U7 both closed on
+2026-08-27**, so the live Wyzant poll is no longer gated. See
+`.audit/u6-u7-verdict.md` for the evidence, including the sequence defect the
+restore drill caught.
 
-**Do not start Phase 2.** Phase 1's real gates (U1, U2a, U6, phone auth) need a
-live deployment, and provisioning is Athena's step.
+Open items, none of them blocking Phase 5:
+
+1. The S2 minor-identifying signal set covers numerals only. It must cover
+   spelled-out numerals **before any live `ResearchSourceProvider` ships**. See
+   the usability criteria below.
+2. `.audit/dump.mjs` and `.audit/restore.mjs` are auditor tooling and belong in
+   `ops/` as shipped code, with `pg` added as a dependency and a test that the
+   dump emits one `setval` per serial column. Phase 11.
+3. The live probe list in `docs/DEPLOYMENT.md` names only the seven Phase 1
+   tables. It must enumerate every table the migration set secures plus every
+   name in `TABLES_CREATED_OUTSIDE_MIGRATIONS`. A stale list there is how
+   `_prisma_migrations` shipped world-readable.
+4. A backup taken once is not a backup. Before real inquiries flow, the dump
+   needs a schedule and the restore needs re-verifying whenever the schema
+   changes.
+
+**Phases 5, 6 and 7 are closed.** The live pipeline has run end to end: the
+Wyzant poll ingests, qualification runs, and `/today` renders real leads.
+
+**The exception channel across the runner boundary is closed as of 2026-08-27.**
+Codex built it at `6e38c32`; the audit returned PASS WITH FINDINGS and **the
+auditor applied all three fixes directly** - they are in the working tree,
+uncommitted, and already verified at 442/442 with typecheck, lint, format,
+`docs:lint` and `next build` all clean. `lib/core/engine.ts` is unchanged at
+`9f95451a2e60cd143afa1d46618b34e0`. **Do not redo this work.** The full record,
+findings and fixes, is `.audit/exception-channel-verdict.md`.
+
+The one finding worth carrying forward: the malformed-job reason was free text,
+and a one-line edit interpolating `job.author` put a learner's name on the wire
+with all 419 tests passing. It is now a closed vocabulary in
+`lib/adapters/wyzant-reasons.ts`, enforced at the adapter and again at the wire
+validator. **Any new string that crosses the runner boundary needs the same
+treatment**: a registered vocabulary, not a shape that admits prose.
+
+**All four parts of 7.5 are closed.** Every audit returned PASS WITH FINDINGS and
+**the auditor applied the fixes directly**, uncommitted in the tree. Full records
+in `.audit/phase-7-5a-verdict.md` through `-7-5d-`. **Do not redo any of them.**
+
+**Both handed-back tasks are done** (`fe9a7a5`), audited in
+`.audit/fix-pass-verdict.md`. The Action Sheet cadence is live - Negotiate 2,
+Active 3, Engage 3, Prospect 7, Cold 15 - and the twelve re-derived fixtures were
+mutation-tested and bite harder than the ones they replaced, including two
+tie-breaks that had no coverage before.
+
+**The 7.5a retarget is unblocked.** `docs/REBUILT-DASHBOARD-SCHEMA.md` carries
+the rebuilt sheet's header rows for all three tabs, read off the live sheet,
+with the renames and the fill counts. Three traps in there: six columns are
+**formulas, not data** (`Last Touch`, `Days Quiet`, `Chase After`, `Chase Flag`,
+`Contactable`, `Data Flags`) and must not be imported as typed values;
+`Overview` and `Action Queue` are derived tabs over `UG Sales` and importing
+them would duplicate every lead; `Affiliate` has no `ID` column and is keyed on
+`Full name`. The academic columns are on the canonical sheet now, so the merge
+stops being a reconciliation and becomes an import.
+
+**Fix the flake before anything runs on a schedule.**
+`tests/wyzant-operational-hardening.test.ts` fails roughly one full-suite run in
+three: four real `setTimeout` delays, no fake timers, timing out at vitest's
+5000ms default under contention. A suite that fails one run in three stops being
+a gate, and `pnpm verify` is what stands between this project and the failure it
+was built to avoid.
+
+**Binding, added 2026-08-27: no draft from the production outreach agent reaches
+a human until the model QA has been exercised against the recorded attack tables
+with a real API key.** A deterministic lint cannot be complete against
+paraphrase; `voiceLint` is a floor, not the gate. The QA rules are in the prompt
+and the wiring is tested, but the reviewer's judgement is untested and a stub
+that rejects our own attacks would be the code marking its own homework.
+
+**Binding, added 2026-08-27: no surface may render a `drafts` row until it has
+passed `voiceLint`.** `ClaudeDraftService` runs on every ingest scoring 70 or
+above and writes to `drafts` with no voice gate. Nothing reads that table today,
+so it is stored and inert, but Phase 7's decision surface is where it goes live.
+Converge the two draft paths or gate the surface; do not ship the surface first.
 
 ## The seven guardrails
 
@@ -141,18 +208,32 @@ and a terminal. These are acceptance gates, not aspirations.
 - **U3** `/today` opens on at most five decisions, artifact inline (Phase 7)
 - **U4** the full daily loop completes at 390px (Phase 7)
 - **U5** approve to send to logged is two taps plus the one paste G1 requires
-- **U6** hosted Postgres with a backup verified by an actual restore. **Deferred
-  by the owner on 2026-08-26, not waived.** Supabase Free has no automatic
-  backups, so today there is no backup to restore rather than an unverified one.
-  That is acceptable only while the database holds no real data. **U6 must close
-  before the live Wyzant poll is switched on**, because that is the moment
-  families' names and inquiry text enter the database. The line is precise:
-  building Phase 3, verifying selectors against a saved page fixture, and
-  running `ops/wyzant-diagnose.ts` read-only against Cole's board are all fine
-  without U6. Enabling the scheduled poll so real inquiries POST to production
-  `/api/ingest` is not
+- **U6** hosted Postgres with a backup verified by an actual restore. **Closed
+  2026-08-27.** Supabase Free has no automatic backups, so the backup is a
+  data-only logical dump; the schema half is reproducible from
+  `prisma/migrations`. Verified by restoring 226 seeded rows across all fourteen
+  tables into a scratch project and comparing every table byte for byte. The
+  drill found a real defect: the first dump omitted sequence positions, so a
+  restore into a fresh database left every serial at 1 and the first write after
+  recovery died on a primary key collision. Fixed with `setval` per serial and
+  re-verified. **This unblocked the live Wyzant poll.** A backup taken once is
+  not a backup: `ops/backup.mjs` and a schedule belong to Phase 11
 - **U7** no table in `public` is readable, writable or deletable by the `anon`
-  key, verified against the live deployment rather than a config screen
+  key, verified against the live deployment rather than a config screen.
+  **Closed 2026-08-27.** Read side: all fifteen tables return `[]` over
+  PostgREST while `leads` and `poll_heartbeats` hold rows. Write side: as the
+  `anon` role against 226 rows, `UPDATE` and `DELETE` touch nothing and `INSERT`
+  is refused with `42501`. The probe list in `docs/DEPLOYMENT.md` went stale
+  phase by phase and that is how `_prisma_migrations` shipped world-readable;
+  it must enumerate every table the migration set secures plus every name in
+  `TABLES_CREATED_OUTSIDE_MIGRATIONS`
+- **S2 source filter** the minor-identifying signal set covers numerals only.
+  **Before any live `ResearchSourceProvider` ships, it must also cover
+  spelled-out numerals** - written ages (`sixteen years old`), written grades
+  (`eleventh grade`, `tenth grader`, `eighth grade`) and `Year N` - with both
+  the must-exclude and must-pass tables extended and each new clause probed on
+  its own. Recorded at the Phase 4 pass on 2026-08-27. Safe until then only
+  because the provider is an interface with no implementation
 
 Design test for any UI decision: would Athena do this from her phone while
 walking? If no, it is not shipped.
@@ -160,11 +241,21 @@ walking? If no, it is not shipped.
 ## Anti-scope - do not build these, do not offer to
 
 A large agent org chart. Any auto-send capability. Cold outbound to parents of
-minors. Student leaderboards. An ESP migration. A CRM integration. Reddit,
-Facebook or Nextdoor adapters. The Wright student console. Anything designed
-against The Chapter beyond the existing `org_id` column. Market intelligence or
-channel analytics. Content strategy as an agent decision. Wyzant fee or tracking
+minors. Student leaderboards. An ESP migration. **A third-party CRM product
+integration** - HubSpot, Pipedrive, Attio, Airtable, Notion. Reddit, Facebook or
+Nextdoor adapters. The Wright student console. Anything designed against The
+Chapter beyond the existing `org_id` column. Market intelligence or channel
+analytics. Content strategy as an agent decision. Wyzant fee or tracking
 workarounds.
+
+**Disambiguated 27 Aug 2026.** This entry used to read "a CRM integration", and
+an executor correctly stopped on it when handed the Phase 7.5 brief. It forbids
+adopting a CRM _product_, for the reason the build plan gives: the new Postgres
+is the system of record, and adding a product now is a migration on the critical
+path. **Ingesting Whetstone's own lead records into that Postgres is not the
+forbidden thing; it is what this entry protects.** That work is Phase 7.5,
+`docs/PHASE-7.5-CRM.md`, and it is in scope. Section 4 of that document rejects
+every CRM product for exactly the reason above.
 
 ## The FACTS.md hard gate
 

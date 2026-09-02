@@ -56,12 +56,21 @@ const response = await fetch(ingestUrl, {
   body: JSON.stringify({ leads, heartbeat, exceptions: transportable }),
   signal: AbortSignal.timeout(60_000),
 });
-if (!response.ok)
+// Reported before either throw below.
+//
+// A poll that loses an adapter is the run these counts matter most on — it is
+// the case the `finally` drain above exists for — and it was the one run that
+// never printed them, because the throw came first. An operator reading the
+// Actions log on a failed poll now sees what crossed and what did not.
+if (!response.ok) {
+  console.error("[wyzant-poll:ingest-failed]", {
+    status: response.status,
+    fetched: leads.length,
+    exceptionsSent: transportable.length,
+    exceptionsDropped: untransportable,
+    failedAdapters,
+  });
   throw new Error(`Ingest failed with HTTP ${response.status}.`);
-if (failedAdapters.length > 0) {
-  throw new Error(
-    `Wyzant poll failed for adapter(s): ${failedAdapters.join(", ")}.`,
-  );
 }
 const result = (await response.json()) as {
   polled?: number;
@@ -75,7 +84,16 @@ console.info("[wyzant-poll:complete]", {
   inserted: result.inserted ?? 0,
   deduped: result.deduped ?? 0,
   exceptionsSent: transportable.length,
+  // From the ingest route's row count, so a mismatch with exceptionsSent means
+  // the rows did not land — not that nothing was sent.
   exceptionsRecorded: result.exceptionsRecorded ?? 0,
   exceptionsDropped: untransportable,
-  heartbeat: "recorded",
+  // Stated, not assumed. A poll with a failed adapter withholds the heartbeat.
+  heartbeat: heartbeat ? "recorded" : "withheld",
+  failedAdapters,
 });
+if (failedAdapters.length > 0) {
+  throw new Error(
+    `Wyzant poll failed for adapter(s): ${failedAdapters.join(", ")}.`,
+  );
+}

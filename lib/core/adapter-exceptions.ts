@@ -1,3 +1,4 @@
+import { WYZANT_EXTRACTION_REASONS } from "../adapters/wyzant-reasons";
 import type { AdapterException } from "./types";
 
 /**
@@ -55,7 +56,22 @@ export const ADAPTER_EXCEPTION_REGISTRY = {
   WyzantJobMalformed: {
     severity: "warning",
     /** "JOB-1042: job description is missing" */
-    message: /^[A-Za-z0-9_-]{1,64}: [A-Za-z][A-Za-z0-9 ,.'-]{1,160}$/,
+    /**
+     * The reason half is a closed vocabulary, not a shape.
+     *
+     * A shape here admitted 160 characters of ordinary prose, which is to say
+     * it admitted "JOB-1: parent is Xiang Gao, dad" and a phone number. The
+     * adapter narrows the reason at the source; this refuses it again at the
+     * boundary, so neither side alone is load-bearing.
+     */
+    message: new RegExp(
+      `^[A-Za-z0-9_-]{1,64}: (?:${WYZANT_EXTRACTION_REASONS.map((reason) =>
+        // Escaped: one reason ends in a period, and an unescaped "." would
+        // match any character there — a small hole, but the kind that only
+        // ever gets wider.
+        reason.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      ).join("|")})$`,
+    ),
   },
   AdapterPollFailed: {
     severity: "warning",

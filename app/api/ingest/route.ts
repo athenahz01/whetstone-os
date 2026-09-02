@@ -1,5 +1,8 @@
 import { BatchAdapter } from "../../../lib/adapters/batch";
-import { parseAdapterExceptions } from "../../../lib/core/adapter-exceptions";
+import {
+  ADAPTER_EXCEPTION_KINDS,
+  parseAdapterExceptions,
+} from "../../../lib/core/adapter-exceptions";
 import { prisma } from "../../../lib/core/db";
 import {
   recordPollHeartbeat,
@@ -76,13 +79,27 @@ export async function POST(request: Request) {
     inserted: 0,
     deduped: 0,
   };
+  // Counted from the table, not from the request body.
+  //
+  // This used to return `exceptions.length`, which is the number the validator
+  // accepted — computed before the workflow ran and never revised by it. A
+  // rejected insert, an RLS refusal or a rolled-back transaction would leave
+  // the table empty and still report the full count, and this is the number
+  // the poll prints for an operator to read. A number named "recorded" has to
+  // come from the rows.
+  const exceptionsRecorded = await prisma.exception.count({
+    where: {
+      runId: prospecting.qualification.run.runId,
+      kind: { in: [...ADAPTER_EXCEPTION_KINDS] },
+    },
+  });
   return Response.json({
     ok: guarded.run.status === "succeeded",
     qualificationRunId: prospecting.qualification.run.runId,
     runId: guarded.run.runId,
     status: guarded.run.status,
     ...result,
-    exceptionsRecorded: exceptions?.length ?? 0,
+    exceptionsRecorded,
   });
 }
 

@@ -1,4 +1,8 @@
 import {
+  narrowWyzantExtractionReason,
+  type WyzantExtractionReason,
+} from "./wyzant-reasons";
+import {
   chromium,
   type Browser,
   type BrowserContext,
@@ -156,7 +160,7 @@ export interface WyzantJobSnapshot {
 
 export interface WyzantExtractionFailure {
   nativeId: string;
-  reason: string;
+  reason: WyzantExtractionReason;
 }
 
 export interface ExtractJobsOptions {
@@ -296,10 +300,12 @@ export async function extractJobs(
     } catch (error) {
       options.onMalformedJob?.({
         nativeId: job.nativeId,
-        reason:
-          error instanceof Error
-            ? error.message
-            : "job could not be normalized",
+        // Narrowed, never passed through. A throw from a callee inside this
+        // block, or a new check added later, becomes the fallback instead of
+        // putting its message on the wire.
+        reason: narrowWyzantExtractionReason(
+          error instanceof Error ? error.message : undefined,
+        ),
       });
     }
   }
@@ -576,6 +582,29 @@ export function configuredWyzantLessonTypes(
   return includeOnlineJobs ? ["online", "in_person"] : ["in_person"];
 }
 
+/**
+ * Keeps only the labels that were read off a card in this run.
+ *
+ * Extracted so it can be exercised directly. The integration path cannot reach
+ * the dropping branch today, because `rejectedSubjects` is built from
+ * `job.subject` and nothing else - the same "holds by construction" that was
+ * true of the malformed-job reason right up until a callee turned out to be
+ * feeding it prose. Rather than add a test-only injection hook to the adapter
+ * to fake reachability, the rule is a named function with its own tests, and
+ * the limitation is stated here.
+ */
+export function attestedSubjectLabels(
+  rejected: Iterable<string>,
+  jobs: readonly Pick<WyzantJobSnapshot, "subject">[],
+): string[] {
+  const observed = new Set(
+    jobs
+      .map((job) => job.subject?.trim())
+      .filter((subject): subject is string => Boolean(subject)),
+  );
+  return [...rejected].filter((subject) => observed.has(subject.trim())).sort();
+}
+
 export async function collectConfiguredWyzantJobs(
   options: Pick<
     WyzantAdapterOptions,
@@ -605,7 +634,18 @@ export async function collectConfiguredWyzantJobs(
     rejectedSubjects.add(subject),
   );
   if (rejectedSubjects.size > 0) {
-    diagnostics.onRejectedSubjects?.([...rejectedSubjects].sort());
+    // Every label must be a subject that was actually read off a card in this
+    // run. The set is built from `job.subject` today, so this holds by
+    // construction - which is exactly the argument that was made for the
+    // malformed-job reason before a callee turned out to be feeding it prose.
+    //
+    // A vocabulary cannot guard this slot: the message exists to carry labels
+    // the board shows and we do not recognise, so the legitimate contents are
+    // unknown by definition. What can be pinned is the *source*. A label that
+    // is not among the subjects observed this run did not come from a card, and
+    // is dropped rather than sent.
+    const attested = attestedSubjectLabels(rejectedSubjects, jobs);
+    if (attested.length > 0) diagnostics.onRejectedSubjects?.(attested);
   }
   return dedupeWyzantJobs(filtered);
 }

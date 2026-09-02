@@ -423,6 +423,26 @@ Phases 0-7 are the sales proof point. Phase 8 is the marketing proof point. Phas
 - `sequences` and `touches` tables - a next-touch scheduler with per-sequence timing rules.
 - **Reply ingestion** through the existing IMAP adapter. Classifies intent: `interested` / `not now` / `no` / `auto-reply` / `needs human`. Proposes the next action; never takes it.
 - **Stall detection (GREEN).** No reply in N days at stage X → surfaced on `/today` with the proposed next touch attached.
+- **Source expiry (GREEN). Added 2026-08-27 after the owner opened `/today` and
+ found every lead on it pointing at a job that no longer existed.** This was a
+ gap in this plan, not a defect in the build: the plan covers our own stalls and
+ it covers the Wyzant *session* going stale (Phase 11), and it never covered the
+ *opportunity itself* disappearing. Wyzant jobs are competitive and get filled
+ or withdrawn within hours, so a lead is a perishable good. Each open lead is
+ re-checked against its source on a cadence; one that has gone is marked
+ `source_expired` with the time it was last seen, and drops off `/today`. It is
+ never deleted - a filled job is the most useful signal we have about how fast
+ this market moves, and Phase 10 needs it to answer whether replying sooner
+ wins more. A lead that cannot be re-checked is marked `unverified`, not
+ expired: an expired session must never look like an empty market.
+- **Owner-stated on 2026-08-27: dead leads must not stay on her screen, and she
+ wants a delete she can press.** Both, then, and they are different things.
+ `source_expired` drops off `/today` automatically, so the page stays clean with
+ no action from her. A **Delete** control on each card removes the row outright
+ for the cases where she wants it gone rather than filed. The row surviving by
+ default is what lets Phase 10 answer whether replying sooner wins more work;
+ the button is hers regardless, and pressing it is a decision the system records
+ rather than argues with.
 - **Follow-up drafts (`S4.followup`, YELLOW).** Same `voiceLint` + QA path as Phase 5. This is a distinct workflow from `S4.stalls`, which only detects - detection and drafting have different approval levels and must not share an id.
 - **Outcome logging.** `outcomes` is ported in Phase 1 and read in Phase 10, and until something writes it the pipeline half of Cole's Friday criterion is unevidenced. So logging replied / call booked / converted / revenue becomes a first-class action here, surfaced on `/today` in Phase 7. Response rate, qualified-conversation rate, meetings booked and pipeline value are all derived from this one table.
 - **The Harvard Club sequence, encoded from the docs as written.** Five emails plus three SMS templates, with the documented branches:
@@ -441,6 +461,12 @@ Phases 0-7 are the sales proof point. Phase 8 is the marketing proof point. Phas
 - [ ] The compress branch drops Email 2 correctly on a 3-day gap fixture.
 - [ ] `RED` actions have no implementation.
 - [ ] Every scheduled touch is traceable to the sequence rule that produced it.
+- [ ] An expired source is marked `source_expired`, keeps its last-seen time,
+      and no longer appears on `/today`. Proven with a fixture whose job is gone.
+- [ ] A re-check that cannot reach the source marks `unverified`, not expired.
+      **A stale session must never read as a quiet market.**
+- [ ] A **Delete** control on a lead removes the row, and the deletion itself is
+      recorded. One press, no confirmation dialog on a dead lead.
 - [ ] `outcomes` is written by a real logged outcome, and the funnel figures derive from it. **Nothing may claim the funnel is "wired" without a row in this table.**
 
 **Tests.** Stall-detection fixture. Reply-classification accuracy on a labeled set. Sequence-branch tests for both gap lengths and both file-completion states. A chase-limit test attempting a second chase.

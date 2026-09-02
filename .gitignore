@@ -19,3 +19,8 @@ out/
 coverage/
 *.tsbuildinfo
 *.log
+
+# auditor scratch - source snapshots and probes, never committed
+.audit/*.tar.gz
+.audit/*.tgz
+.audit/exc-probe.test.ts
