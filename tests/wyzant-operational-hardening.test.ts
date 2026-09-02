@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { chromium, type Browser } from "playwright";
 import {
   assertAuthenticatedWyzantMessagesUrl,
@@ -57,6 +57,36 @@ const scope = {
   targetLocations: ["Manhattan", "New York, NY"],
   includeOnlineJobs: true,
 };
+
+/**
+ * One browser for the tests that only need a page.
+ *
+ * This file launched seven. Isolated that is about 9.8 seconds; under
+ * full-suite contention it is the dominant cost, and the file fails
+ * intermittently - not at a timer, but because launching Chromium seven times
+ * on a loaded machine is slow enough to exhaust the per-test budget. The same
+ * pressure makes `wyzant-extraction-fixture.test.ts` fail its teardown hook.
+ *
+ * Four of the seven launch a browser, open a page and close both. Those share
+ * safely and are switched over here, following the pattern that file already
+ * uses.
+ *
+ * **The other three cannot share, and the reason is not obvious.** They expose
+ * `close: async () => actualBrowser.close()` as the adapter's own close method,
+ * and the production code calls it - so a shared browser would be closed
+ * mid-file by the code under test. Sharing them would mean changing what
+ * `close` does, which is part of what those tests exercise. They keep their own
+ * launches on purpose.
+ */
+let sharedBrowser: Awaited<ReturnType<typeof chromium.launch>>;
+
+beforeAll(async () => {
+  sharedBrowser = await chromium.launch({ headless: true });
+});
+
+afterAll(async () => {
+  await sharedBrowser.close();
+});
 
 describe("Wyzant operational hardening", () => {
   it("pins both production defaults to the observed highered host", () => {
@@ -131,7 +161,7 @@ describe("Wyzant operational hardening", () => {
   });
 
   it("follows board pagination until the extracted distinct-card count matches the board total", async () => {
-    const browser = await chromium.launch({ headless: true });
+    const browser = sharedBrowser;
     try {
       const page = await browser.newPage();
       const firstPageSubjects = Array.from({ length: 10 }, () => "SAT Reading");
@@ -168,12 +198,12 @@ describe("Wyzant operational hardening", () => {
       expect(page.url()).toBe("https://highered.wyzant.com/tutor/jobs?page=2");
       await page.close();
     } finally {
-      await browser.close();
+      // The browser is shared and closed in afterAll.
     }
   }, 15_000);
 
   it("treats an explicitly empty jobs list as a reconciled zero without waiting for a missing header", async () => {
-    const browser = await chromium.launch({ headless: true });
+    const browser = sharedBrowser;
     try {
       const page = await browser.newPage();
       await page.setContent('<div id="jobs-list"></div>');
@@ -186,7 +216,7 @@ describe("Wyzant operational hardening", () => {
       });
       await page.close();
     } finally {
-      await browser.close();
+      // The browser is shared and closed in afterAll.
     }
   });
 
@@ -316,7 +346,7 @@ describe("Wyzant operational hardening", () => {
   });
 
   it("retries an evaluation interrupted by a client-side redirect to another official subdomain", async () => {
-    const browser = await chromium.launch({ headless: true });
+    const browser = sharedBrowser;
     try {
       const page = await browser.newPage();
       await page.route(
@@ -367,7 +397,7 @@ describe("Wyzant operational hardening", () => {
       expect(page.url()).toBe("https://highered.wyzant.com/tutor/messaging");
       await page.close();
     } finally {
-      await browser.close();
+      // The browser is shared and closed in afterAll.
     }
   }, 15_000);
 
@@ -435,7 +465,7 @@ describe("Wyzant operational hardening", () => {
   });
 
   it("replaces a page target that closes during a Wyzant read", async () => {
-    const browser = await chromium.launch({ headless: true });
+    const browser = sharedBrowser;
     try {
       const context = await browser.newContext();
       await context.route(
@@ -470,7 +500,7 @@ describe("Wyzant operational hardening", () => {
       expect(read).toHaveBeenCalledTimes(2);
       await context.close();
     } finally {
-      await browser.close();
+      // The browser is shared and closed in afterAll.
     }
   });
 

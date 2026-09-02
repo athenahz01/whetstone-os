@@ -116,12 +116,39 @@ them would duplicate every lead; `Affiliate` has no `ID` column and is keyed on
 `Full name`. The academic columns are on the canonical sheet now, so the merge
 stops being a reconciliation and becomes an import.
 
-**Fix the flake before anything runs on a schedule.**
-`tests/wyzant-operational-hardening.test.ts` fails roughly one full-suite run in
-three: four real `setTimeout` delays, no fake timers, timing out at vitest's
-5000ms default under contention. A suite that fails one run in three stops being
-a gate, and `pnpm verify` is what stands between this project and the failure it
-was built to avoid.
+**The flake: my diagnosis was wrong, and an executor spent a pass on it.**
+
+I wrote here that `tests/wyzant-operational-hardening.test.ts` fails because of
+"four real `setTimeout` delays, no fake timers", and told an executor to fix it
+with fake timers. **That is impossible.** All four `setTimeout` calls are inside
+`<script>` bodies served to the page through `route.fulfill`, so they run in the
+Chromium renderer. `vi.useFakeTimers()` patches this process and cannot reach
+them. The executor found this, tried two other approaches, regressed the file
+twice, backed both out, and reported rather than shipping an unverifiable
+rewrite. That was the right call and the wasted pass is on me.
+
+**The real cause** is seven `chromium.launch()` calls. Isolated the file takes
+about 9.8 seconds; under contention the launches dominate and a test exhausts
+its budget. Below roughly 1 GB free it fails 6 or 7 of 16, and
+`wyzant-extraction-fixture.test.ts` fails its teardown hook at the same time.
+
+**Partly fixed 2026-09-02 by the auditor. Launches are down from seven to four.**
+Four tests launched a browser, opened a page and closed both; they now share one
+browser through `beforeAll`/`afterAll`, the pattern
+`wyzant-extraction-fixture.test.ts` already used.
+
+**The other three cannot share, and the reason is not the one first given.** They
+are not tests about session replacement - the test that does that uses pure fakes
+and no real browser. They expose `close: async () => actualBrowser.close()` as
+the adapter's own close method, and the production code calls it, so a shared
+browser would be closed mid-file by the code under test. Changing that changes
+what those tests exercise. Leave them.
+
+**Not verified against the condition that triggers it.** Eight consecutive green
+full runs after the change, plus four isolated, and three more under induced
+pressure - but the lowest free memory reached was 4.4 GB, and the failure appears
+below 1 GB. The mechanism is addressed; the proof is a run on a loaded machine.
+**Re-measure there before trusting the suite as a gate.**
 
 **Binding, added 2026-08-27: no draft from the production outreach agent reaches
 a human until the model QA has been exercised against the recorded attack tables
